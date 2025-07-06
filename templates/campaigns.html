@@ -1,0 +1,1178 @@
+{% extends "base.html" %}
+
+{% block title %}Campaigns - Meta Ads Automation{% endblock %}
+{% block page_title %}Campaigns{% endblock %}
+{% block page_subtitle %}Manage your Meta advertising campaigns and automation rules{% endblock %}
+
+{% block extra_css %}
+<style>
+    .campaigns-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+
+    .campaigns-filters {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+        font-size: 14px;
+        color: #374151;
+        min-width: 120px;
+    }
+
+    .filter-select:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .refresh-button {
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+    }
+
+    .refresh-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .campaigns-table-container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .campaigns-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .campaigns-table th {
+        background: #f8fafc;
+        padding: 16px;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        font-size: 14px;
+        border-bottom: 1px solid #e2e8f0;
+        white-space: nowrap;
+    }
+
+    .campaigns-table td {
+        padding: 16px;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+    }
+
+    .campaigns-table tr:hover {
+        background: #f8fafc;
+    }
+
+    .campaign-name {
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 4px;
+    }
+
+    .campaign-id {
+        font-size: 12px;
+        color: #64748b;
+        font-family: monospace;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-badge.active {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .status-badge.paused {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .status-badge.inactive {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-indicator.active {
+        background: #10b981;
+    }
+
+    .status-indicator.paused {
+        background: #f59e0b;
+    }
+
+    .status-indicator.inactive {
+        background: #6b7280;
+    }
+
+    .metric-value {
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .metric-label {
+        font-size: 12px;
+        color: #64748b;
+        margin-top: 2px;
+    }
+
+    .roas-value {
+        font-weight: 600;
+    }
+
+    .roas-value.good {
+        color: #059669;
+    }
+
+    .roas-value.average {
+        color: #d97706;
+    }
+
+    .roas-value.poor {
+        color: #dc2626;
+    }
+
+    .match-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .match-badge.id-match {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .match-badge.name-match {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .match-badge.no-match {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .campaign-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .action-button {
+        padding: 6px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background: white;
+        color: #374151;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .action-button:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+        background: #f8fafc;
+    }
+
+    .action-button.toggle-pause {
+        border-color: #f59e0b;
+        color: #f59e0b;
+        font-weight: 700;
+        padding: 8px 16px;
+        box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+    }
+
+    .action-button.toggle-pause:hover {
+        background: #f59e0b;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+    }
+
+    .action-button.toggle-activate {
+        border-color: #10b981;
+        color: #10b981;
+        font-weight: 700;
+        padding: 8px 16px;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+    }
+
+    .action-button.toggle-activate:hover {
+        background: #10b981;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+    }
+
+    .action-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none !important;
+    }
+
+    /* Toggle Switch Styles */
+    .campaign-toggle {
+        position: relative;
+        display: inline-block;
+        width: 60px;
+        height: 30px;
+        margin-right: 12px;
+    }
+
+    .campaign-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ef4444;
+        transition: .3s;
+        border-radius: 30px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 22px;
+        width: 22px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        transition: .3s;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .campaign-toggle input:checked + .toggle-slider {
+        background-color: #10b981;
+    }
+
+    .campaign-toggle input:checked + .toggle-slider:before {
+        transform: translateX(30px);
+    }
+
+    .toggle-slider:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Campaign Details Dropdown */
+    .campaign-row {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .campaign-row:hover {
+        background: #f8fafc;
+    }
+
+    .campaign-expand-icon {
+        transition: transform 0.2s ease;
+        color: #64748b;
+        margin-right: 8px;
+        cursor: pointer;
+    }
+
+    .campaign-expand-icon.expanded {
+        transform: rotate(90deg);
+    }
+
+    .campaign-details-row {
+        display: none;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .campaign-details-row.show {
+        display: table-row;
+    }
+
+    .campaign-details-content {
+        padding: 20px;
+        border-left: 4px solid #3b82f6;
+    }
+
+    .details-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    @media (max-width: 768px) {
+        .details-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 480px) {
+        .details-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .detail-item {
+        background: white;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .detail-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+
+    .detail-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .campaign-objective {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #dbeafe;
+        color: #1e40af;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    /* Rules Dropdown */
+    .rules-section {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .rules-section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rules-dropdown-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .rules-select {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+        font-size: 14px;
+        color: #374151;
+        min-width: 200px;
+    }
+
+    .rules-select:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .assign-rule-btn {
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .assign-rule-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .assign-rule-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .assigned-rules {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .assigned-rule-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        background: #dcfce7;
+        color: #166534;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .remove-rule-btn {
+        background: none;
+        border: none;
+        color: #dc2626;
+        cursor: pointer;
+        padding: 0;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s ease;
+    }
+
+    .remove-rule-btn:hover {
+        background: #fecaca;
+    }
+
+    .rules-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    .rules-count {
+        background: #3b82f6;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-weight: 600;
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #64748b;
+    }
+
+    .empty-state i {
+        font-size: 64px;
+        color: #cbd5e1;
+        margin-bottom: 20px;
+    }
+
+    .empty-state h3 {
+        font-size: 20px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        color: #374151;
+    }
+
+    .empty-state p {
+        font-size: 16px;
+        margin-bottom: 24px;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        display: none;
+    }
+
+    .loading-overlay.show {
+        display: flex;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e2e8f0;
+        border-top: 4px solid #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 768px) {
+        .campaigns-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .campaigns-filters {
+            justify-content: space-between;
+        }
+
+        .campaigns-table-container {
+            overflow-x: visible;
+        }
+
+        .campaigns-table {
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        .campaigns-table th,
+        .campaigns-table td {
+            padding: 8px 4px;
+            font-size: 12px;
+        }
+
+        .campaign-name {
+            font-size: 12px;
+        }
+
+        .campaign-id {
+            font-size: 10px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="campaigns-header">
+    <div class="campaigns-filters">
+        <select class="filter-select" id="statusFilter" onchange="filterCampaigns()">
+            <option value="">All Statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="PAUSED">Paused</option>
+        </select>
+
+        <select class="filter-select" id="dateFilter" onchange="loadCampaigns()">
+            <option value="last_30_days">Last 30 Days</option>
+            <option value="last_7_days">Last 7 Days</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+        </select>
+
+        <select class="filter-select" id="matchFilter" onchange="filterCampaigns()">
+            <option value="">All Tracking</option>
+            <option value="ID Match">ID Match</option>
+            <option value="Name Match">Name Match</option>
+            <option value="No Match">No Match</option>
+        </select>
+    </div>
+
+    <button class="refresh-button" onclick="refreshCampaigns()">
+        <i class="fas fa-sync-alt"></i>
+        <span>Refresh</span>
+    </button>
+</div>
+
+<div class="campaigns-table-container">
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <div id="campaignsContent">
+        <div class="empty-state">
+            <i class="fas fa-bullhorn"></i>
+            <h3>No Campaigns Found</h3>
+            <p>Load your Meta ad accounts to see campaigns and start automation</p>
+            <button class="btn-primary" onclick="loadAccountsAndCampaigns()">Load Campaigns</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let allCampaigns = [];
+    let campaignsCache = {};
+    let lastLoadTime = 0;
+    const CACHE_DURATION = 30000; // 30 seconds cache
+
+    // Load campaigns on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadCampaigns();
+    });
+
+    // Load campaigns with caching
+    function loadCampaigns() {
+        const dateRange = document.getElementById('dateFilter').value;
+        const cacheKey = `campaigns_${dateRange}`;
+        const now = Date.now();
+
+        // Check cache first
+        if (campaignsCache[cacheKey] && (now - lastLoadTime) < CACHE_DURATION) {
+            console.log('Loading campaigns from cache');
+            allCampaigns = campaignsCache[cacheKey];
+            renderCampaigns(allCampaigns);
+            return;
+        }
+
+        showLoading(true);
+
+        fetch(`/dashboard/api/campaigns/${dateRange}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allCampaigns = data.campaigns || [];
+                    // Cache the results
+                    campaignsCache[cacheKey] = allCampaigns;
+                    lastLoadTime = now;
+                    renderCampaigns(allCampaigns);
+                } else {
+                    showEmptyState();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading campaigns:', error);
+                showEmptyState();
+            })
+            .finally(() => {
+                showLoading(false);
+            });
+    }
+
+    // Load accounts and campaigns
+    function loadAccountsAndCampaigns() {
+        showLoading(true);
+
+        fetch('/dashboard/api/accounts')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.accounts.length > 0) {
+                    // Auto-select first account
+                    return fetch(`/dashboard/api/set-account/${data.accounts[0].id}`, { method: 'POST' });
+                } else {
+                    throw new Error('No accounts found');
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    return loadCampaigns();
+                } else {
+                    throw new Error('Failed to set account');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading accounts:', error);
+                alert('Error loading accounts. Please check your Meta API connection.');
+                showLoading(false);
+            });
+    }
+
+    // Refresh campaigns (force reload)
+    function refreshCampaigns() {
+        // Clear cache to force fresh data
+        campaignsCache = {};
+        lastLoadTime = 0;
+        loadCampaigns();
+    }
+
+    // Clear campaigns cache
+    function clearCampaignsCache() {
+        campaignsCache = {};
+        lastLoadTime = 0;
+    }
+
+    // Filter campaigns
+    function filterCampaigns() {
+        const statusFilter = document.getElementById('statusFilter').value;
+        const matchFilter = document.getElementById('matchFilter').value;
+
+        let filteredCampaigns = allCampaigns;
+
+        if (statusFilter) {
+            filteredCampaigns = filteredCampaigns.filter(c => c.status === statusFilter);
+        }
+
+        if (matchFilter) {
+            filteredCampaigns = filteredCampaigns.filter(c => c.match_type === matchFilter);
+        }
+
+        renderCampaigns(filteredCampaigns);
+    }
+
+    // Render campaigns table
+    function renderCampaigns(campaigns) {
+        const content = document.getElementById('campaignsContent');
+
+        if (!campaigns || campaigns.length === 0) {
+            showEmptyState();
+            return;
+        }
+
+        const tableHTML = `
+            <table class="campaigns-table">
+                <thead>
+                    <tr>
+                        <th>Campaign</th>
+                        <th>Status</th>
+                        <th>Spend</th>
+                        <th>Revenue</th>
+                        <th>ROAS</th>
+                        <th>Tracking</th>
+                        <th>Toggle</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${campaigns.map(campaign => `
+                        <tr class="campaign-row" onclick="toggleCampaignDetails('${campaign.id}')">
+                            <td>
+                                <div style="display: flex; align-items: center;">
+                                    <i class="fas fa-chevron-right campaign-expand-icon" id="expand-${campaign.id}"></i>
+                                    <div>
+                                        <div class="campaign-name">${campaign.name}</div>
+                                        <div class="campaign-id">${campaign.id}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="status-badge ${campaign.status.toLowerCase()}">
+                                    <div class="status-indicator ${campaign.status.toLowerCase()}"></div>
+                                    ${campaign.status}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="metric-value">$${campaign.spend.toFixed(2)}</div>
+                            </td>
+                            <td>
+                                <div class="metric-value">$${campaign.revenue.toFixed(2)}</div>
+                                <div class="metric-label">${campaign.conversions} conversions</div>
+                            </td>
+                            <td>
+                                <div class="roas-value ${getRoasClass(campaign.roas)}">${campaign.roas}%</div>
+                            </td>
+                            <td>
+                                <div class="match-badge ${getMatchClass(campaign.match_type)}">${campaign.match_type}</div>
+                            </td>
+                            <td>
+                                <div class="campaign-actions" onclick="event.stopPropagation()">
+                                    <label class="campaign-toggle" title="Toggle campaign status">
+                                        <input type="checkbox" ${campaign.status === 'ACTIVE' ? 'checked' : ''}
+                                               onchange="toggleCampaignSwitch('${campaign.id}', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="campaign-details-row" id="details-${campaign.id}">
+                            <td colspan="7">
+                                <div class="campaign-details-content">
+                                    <div class="details-grid">
+                                        <div class="detail-item">
+                                            <div class="detail-label">Campaign ID</div>
+                                            <div class="detail-value">${campaign.id}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Objective</div>
+                                            <div class="detail-value">
+                                                <span class="campaign-objective">${campaign.objective || 'Unknown'}</span>
+                                            </div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Conversions</div>
+                                            <div class="detail-value">${campaign.conversions || 0}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">CPA</div>
+                                            <div class="detail-value">$${calculateCPA(campaign).toFixed(2)}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Conversion Rate</div>
+                                            <div class="detail-value">${calculateConversionRate(campaign).toFixed(2)}%</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Profit</div>
+                                            <div class="detail-value ${calculateProfit(campaign) >= 0 ? 'roas-value good' : 'roas-value poor'}">
+                                                $${calculateProfit(campaign).toFixed(2)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="rules-section">
+                                        <div class="rules-section-title">
+                                            <i class="fas fa-cogs"></i>
+                                            Automation Rules
+                                        </div>
+                                        <div class="rules-dropdown-container">
+                                            <select class="rules-select" id="rules-select-${campaign.id}">
+                                                <option value="">Select a rule to assign...</option>
+                                            </select>
+                                            <button class="assign-rule-btn" onclick="assignSelectedRule('${campaign.id}')" id="assign-btn-${campaign.id}">
+                                                <i class="fas fa-plus"></i>
+                                                Assign Rule
+                                            </button>
+                                        </div>
+                                        <div class="assigned-rules" id="assigned-rules-${campaign.id}">
+                                            <!-- Assigned rules will be displayed here -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+
+        content.innerHTML = tableHTML;
+    }
+
+    // Show empty state
+    function showEmptyState() {
+        const content = document.getElementById('campaignsContent');
+        content.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-bullhorn"></i>
+                <h3>No Campaigns Found</h3>
+                <p>Load your Meta ad accounts to see campaigns and start automation</p>
+                <button class="btn-primary" onclick="loadAccountsAndCampaigns()">Load Campaigns</button>
+            </div>
+        `;
+    }
+
+    // Show/hide loading
+    function showLoading(show) {
+        const overlay = document.getElementById('loadingOverlay');
+        if (show) {
+            overlay.classList.add('show');
+        } else {
+            overlay.classList.remove('show');
+        }
+    }
+
+    // Get ROAS class for styling
+    function getRoasClass(roas) {
+        if (roas >= 200) return 'good';
+        if (roas >= 100) return 'average';
+        return 'poor';
+    }
+
+    // Get match class for styling
+    function getMatchClass(matchType) {
+        if (matchType === 'ID Match') return 'id-match';
+        if (matchType === 'Name Match') return 'name-match';
+        return 'no-match';
+    }
+
+    // Calculate CPA (Cost Per Acquisition)
+    function calculateCPA(campaign) {
+        const conversions = campaign.conversions || 0;
+        const spend = campaign.spend || 0;
+        return conversions > 0 ? spend / conversions : 0;
+    }
+
+    // Calculate Conversion Rate
+    function calculateConversionRate(campaign) {
+        const conversions = campaign.conversions || 0;
+        const spend = campaign.spend || 0;
+        // Assuming 1000 impressions per $10 spend as a rough estimate
+        const estimatedImpressions = spend * 100;
+        return estimatedImpressions > 0 ? (conversions / estimatedImpressions) * 100 : 0;
+    }
+
+    // Calculate Profit
+    function calculateProfit(campaign) {
+        const revenue = campaign.revenue || 0;
+        const spend = campaign.spend || 0;
+        return revenue - spend;
+    }
+
+    // Toggle campaign status via switch
+    function toggleCampaignSwitch(campaignId, isActive) {
+        const newStatus = isActive ? 'ACTIVE' : 'PAUSED';
+        const toggle = event.target;
+        const originalChecked = !isActive; // Store the opposite of current state
+
+        // Disable the toggle during the request
+        toggle.disabled = true;
+
+        fetch(`/dashboard/api/toggle-campaign/${campaignId}/${newStatus}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update the campaign in our local data
+                    const campaign = allCampaigns.find(c => c.id === campaignId);
+                    if (campaign) {
+                        campaign.status = newStatus;
+                        // Clear cache since campaign status changed
+                        clearCampaignsCache();
+                        filterCampaigns(); // Re-render with current filters
+                    }
+                } else {
+                    // Revert toggle state on error
+                    toggle.checked = originalChecked;
+                    alert('Error: ' + (data.error || 'Failed to update campaign'));
+                }
+            })
+            .catch(error => {
+                console.error('Error toggling campaign:', error);
+                // Revert toggle state on error
+                toggle.checked = originalChecked;
+                alert('Error updating campaign status');
+            })
+            .finally(() => {
+                toggle.disabled = false;
+            });
+    }
+
+
+
+
+
+    // Toggle campaign details dropdown
+    function toggleCampaignDetails(campaignId) {
+        // Prevent event bubbling to avoid conflicts with action buttons
+        if (event.target.closest('.campaign-actions')) {
+            return;
+        }
+
+        const detailsRow = document.getElementById(`details-${campaignId}`);
+        const expandIcon = document.getElementById(`expand-${campaignId}`);
+
+        if (detailsRow.classList.contains('show')) {
+            detailsRow.classList.remove('show');
+            expandIcon.classList.remove('expanded');
+        } else {
+            detailsRow.classList.add('show');
+            expandIcon.classList.add('expanded');
+            // Load rules dropdown for this campaign
+            loadRulesDropdown(campaignId);
+        }
+    }
+
+    // Load rules dropdown for campaign
+    function loadRulesDropdown(campaignId) {
+        // Load available rules
+        fetch('/dashboard/api/rules/list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    populateRulesDropdown(campaignId, data.rules);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading rules:', error);
+            });
+
+        // Load assigned rules
+        loadAssignedRules(campaignId);
+    }
+
+    // Populate rules dropdown
+    function populateRulesDropdown(campaignId, rules) {
+        const select = document.getElementById(`rules-select-${campaignId}`);
+        if (!select) return;
+
+        // Clear existing options except the first one
+        select.innerHTML = '<option value="">Select a rule to assign...</option>';
+
+        rules.forEach(rule => {
+            const option = document.createElement('option');
+            option.value = rule.id;
+            option.textContent = `${rule.name} (Payout: $${rule.payout})`;
+            select.appendChild(option);
+        });
+    }
+
+    // Load assigned rules for campaign
+    function loadAssignedRules(campaignId) {
+        fetch(`/dashboard/api/campaigns/${campaignId}/rules`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayAssignedRules(campaignId, data.rules);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading assigned rules:', error);
+            });
+    }
+
+    // Display assigned rules
+    function displayAssignedRules(campaignId, rules) {
+        const container = document.getElementById(`assigned-rules-${campaignId}`);
+        if (!container) return;
+
+        if (rules.length === 0) {
+            container.innerHTML = '<span style="color: #64748b; font-size: 12px;">No rules assigned</span>';
+            return;
+        }
+
+        container.innerHTML = rules.map(rule => `
+            <div class="assigned-rule-tag">
+                <span>${rule.name}</span>
+                <button class="remove-rule-btn" onclick="removeRuleFromCampaign('${campaignId}', '${rule.id}')" title="Remove rule">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // Assign selected rule to campaign
+    function assignSelectedRule(campaignId) {
+        const select = document.getElementById(`rules-select-${campaignId}`);
+        const button = document.getElementById(`assign-btn-${campaignId}`);
+
+        if (!select.value) {
+            alert('Please select a rule to assign');
+            return;
+        }
+
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Assigning...';
+        button.disabled = true;
+
+        fetch(`/dashboard/api/rules/assign/${campaignId}/${select.value}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reset dropdown
+                    select.value = '';
+                    // Reload assigned rules
+                    loadAssignedRules(campaignId);
+                    // Show success message
+                    console.log('Rule assigned successfully');
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to assign rule'));
+                }
+            })
+            .catch(error => {
+                console.error('Error assigning rule:', error);
+                alert('Error assigning rule');
+            })
+            .finally(() => {
+                button.innerHTML = originalHTML;
+                button.disabled = false;
+            });
+    }
+
+    // Remove rule from campaign
+    function removeRuleFromCampaign(campaignId, ruleId) {
+        if (!confirm('Are you sure you want to remove this rule from the campaign?')) {
+            return;
+        }
+
+        fetch(`/dashboard/api/rules/remove/${campaignId}/${ruleId}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload assigned rules
+                    loadAssignedRules(campaignId);
+                    console.log('Rule removed successfully');
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to remove rule'));
+                }
+            })
+            .catch(error => {
+                console.error('Error removing rule:', error);
+                alert('Error removing rule');
+            });
+    }
+
+
+</script>
+{% endblock %}

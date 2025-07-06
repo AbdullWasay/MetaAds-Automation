@@ -1,0 +1,680 @@
+{% extends "base.html" %}
+
+{% block title %}Rules - Meta Ads Automation{% endblock %}
+{% block page_title %}Automation Rules{% endblock %}
+{% block page_subtitle %}Create and manage automation rules for your campaigns{% endblock %}
+
+{% block extra_css %}
+<style>
+    .rules-container {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 32px;
+        align-items: start;
+    }
+
+    .rules-list {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+    }
+
+    .rules-header {
+        padding: 24px;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .rules-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1e293b;
+        margin: 0;
+    }
+
+    .rule-item {
+        padding: 20px 24px;
+        border-bottom: 1px solid #f1f5f9;
+        transition: background-color 0.2s ease;
+    }
+
+    .rule-item:hover {
+        background: #f8fafc;
+    }
+
+    .rule-item:last-child {
+        border-bottom: none;
+    }
+
+    .rule-name {
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 8px;
+        font-size: 16px;
+    }
+
+    .rule-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .rule-detail {
+        font-size: 13px;
+        color: #64748b;
+    }
+
+    .rule-detail strong {
+        color: #374151;
+        font-weight: 600;
+    }
+
+    .rule-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .rule-action-btn {
+        padding: 6px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background: white;
+        color: #374151;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+    }
+
+    .rule-action-btn:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+        background: #f8fafc;
+    }
+
+    .rule-action-btn.delete {
+        border-color: #ef4444;
+        color: #ef4444;
+    }
+
+    .rule-action-btn.delete:hover {
+        background: #fef2f2;
+    }
+
+    .rule-form-container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+        padding: 24px;
+        position: sticky;
+        top: 32px;
+    }
+
+    .form-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 20px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        display: block;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        background: #f9fafb;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .form-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .form-checkbox input {
+        width: 16px;
+        height: 16px;
+        accent-color: #3b82f6;
+    }
+
+    .form-checkbox label {
+        font-size: 14px;
+        color: #374151;
+        margin: 0;
+    }
+
+    .form-submit {
+        width: 100%;
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        color: white;
+        border: none;
+        padding: 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-top: 8px;
+    }
+
+    .form-submit:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .form-cancel {
+        background: #6b7280;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .form-cancel:hover {
+        background: #4b5563;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
+    }
+
+    .form-submit:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .form-help {
+        font-size: 12px;
+        color: #64748b;
+        margin-top: 4px;
+    }
+
+    .campaign-assignment {
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .assignment-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 16px;
+    }
+
+    .campaign-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
+
+    .campaign-item {
+        padding: 12px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .campaign-item:last-child {
+        border-bottom: none;
+    }
+
+    .campaign-info {
+        flex: 1;
+    }
+
+    .campaign-name-small {
+        font-weight: 600;
+        color: #1e293b;
+        font-size: 14px;
+        margin-bottom: 2px;
+    }
+
+    .campaign-status-small {
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    .assign-button {
+        padding: 4px 8px;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+        background: white;
+        color: #374151;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .assign-button:hover {
+        border-color: #3b82f6;
+        color: #3b82f6;
+    }
+
+    .assign-button.assigned {
+        background: #dcfce7;
+        border-color: #10b981;
+        color: #166534;
+    }
+
+    .assign-button.assigned:hover {
+        background: #bbf7d0;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #64748b;
+    }
+
+    .empty-state i {
+        font-size: 48px;
+        color: #cbd5e1;
+        margin-bottom: 16px;
+    }
+
+    .empty-state h3 {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #374151;
+    }
+
+    .empty-state p {
+        font-size: 14px;
+        margin-bottom: 0;
+    }
+
+    @media (max-width: 1024px) {
+        .rules-container {
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+        
+        .rule-form-container {
+            position: static;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .rule-details {
+            grid-template-columns: 1fr;
+        }
+        
+        .rule-actions {
+            flex-wrap: wrap;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rules-container">
+    <!-- Rules List -->
+    <div class="rules-list">
+        <div class="rules-header">
+            <h2 class="rules-title">Your Rules</h2>
+        </div>
+        
+        <div id="rulesContent">
+            <div class="empty-state">
+                <i class="fas fa-cogs"></i>
+                <h3>No Rules Created</h3>
+                <p>Create your first automation rule to get started</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rule Form -->
+    <div class="rule-form-container">
+        <h3 class="form-title">Create New Rule</h3>
+        
+        <form id="ruleForm">
+            <div class="form-group">
+                <label for="ruleName" class="form-label">Rule Name</label>
+                <input type="text" id="ruleName" name="name" class="form-input" 
+                       placeholder="e.g., High CPA Killer" required>
+                <div class="form-help">Give your rule a descriptive name</div>
+            </div>
+
+            <div class="form-group">
+                <label for="payout" class="form-label">Payout per Conversion ($)</label>
+                <input type="number" id="payout" name="payout" class="form-input" 
+                       value="75" step="0.01" min="0" required>
+                <div class="form-help">Expected revenue per conversion</div>
+            </div>
+
+            <div class="form-group">
+                <label for="killNoConversion" class="form-label">Kill at 0 Conversions ($)</label>
+                <input type="number" id="killNoConversion" name="kill_on_no_conversion_spend" 
+                       class="form-input" value="50" step="0.01" min="0" required>
+                <div class="form-help">Pause campaign if no conversions at this spend</div>
+            </div>
+
+            <div class="form-group">
+                <label for="killOneConversion" class="form-label">Kill at 1 Conversion ($)</label>
+                <input type="number" id="killOneConversion" name="kill_on_one_conversion_spend" 
+                       class="form-input" value="60" step="0.01" min="0" required>
+                <div class="form-help">Pause campaign if only 1 conversion at this spend</div>
+            </div>
+
+            <div class="form-group">
+                <label for="maxCpa" class="form-label">Max CPA Allowed ($)</label>
+                <input type="number" id="maxCpa" name="max_cpa_allowed" 
+                       class="form-input" value="60" step="0.01" min="0" required>
+                <div class="form-help">Pause if CPA exceeds this amount</div>
+            </div>
+
+            <div class="form-group">
+                <label for="reactivateCpa" class="form-label">Reactivate if CPA Below ($)</label>
+                <input type="number" id="reactivateCpa" name="reactivate_if_cpa_below" 
+                       class="form-input" value="60" step="0.01" min="0" required>
+                <div class="form-help">Reactivate paused campaigns if CPA improves</div>
+            </div>
+
+
+
+            <div style="display: flex; gap: 12px;">
+                <button type="submit" class="form-submit" id="submitButton">
+                    Create Rule
+                </button>
+                <button type="button" class="form-cancel" id="cancelButton" onclick="cancelEdit()" style="display: none;">
+                    Cancel
+                </button>
+            </div>
+        </form>
+
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let allRules = [];
+    let currentEditingRuleId = null;
+
+    // Load data on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadRules();
+    });
+
+    // Load rules
+    function loadRules() {
+        fetch('/dashboard/api/rules/list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allRules = data.rules || [];
+                    renderRules(allRules);
+                } else {
+                    showEmptyRulesState();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading rules:', error);
+                showEmptyRulesState();
+            });
+    }
+
+
+
+    // Render rules list
+    function renderRules(rules) {
+        const content = document.getElementById('rulesContent');
+
+        if (!rules || rules.length === 0) {
+            showEmptyRulesState();
+            return;
+        }
+
+        const rulesHTML = rules.map(rule => `
+            <div class="rule-item">
+                <div class="rule-name">${rule.name}</div>
+                <div class="rule-details">
+                    <div class="rule-detail">
+                        <strong>Payout:</strong> $${rule.payout}
+                    </div>
+                    <div class="rule-detail">
+                        <strong>Kill at 0:</strong> $${rule.kill_on_no_conversion_spend}
+                    </div>
+                    <div class="rule-detail">
+                        <strong>Kill at 1:</strong> $${rule.kill_on_one_conversion_spend}
+                    </div>
+                    <div class="rule-detail">
+                        <strong>Max CPA:</strong> $${rule.max_cpa_allowed}
+                    </div>
+                </div>
+                <div class="rule-actions">
+                    <button class="rule-action-btn" onclick="editRule('${rule.id}')">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button class="rule-action-btn" onclick="duplicateRule('${rule.id}')">
+                        <i class="fas fa-copy"></i> Duplicate
+                    </button>
+                    <button class="rule-action-btn delete" onclick="deleteRule('${rule.id}')">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        content.innerHTML = rulesHTML;
+    }
+
+    // Show empty rules state
+    function showEmptyRulesState() {
+        const content = document.getElementById('rulesContent');
+        content.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-cogs"></i>
+                <h3>No Rules Created</h3>
+                <p>Create your first automation rule to get started</p>
+            </div>
+        `;
+    }
+
+
+
+
+
+    // Handle form submission
+    document.getElementById('ruleForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const formData = new FormData(e.target);
+        const ruleData = {
+            name: formData.get('name'),
+            payout: parseFloat(formData.get('payout')),
+            kill_on_no_conversion_spend: parseFloat(formData.get('kill_on_no_conversion_spend')),
+            kill_on_one_conversion_spend: parseFloat(formData.get('kill_on_one_conversion_spend')),
+            max_cpa_allowed: parseFloat(formData.get('max_cpa_allowed')),
+            reactivate_if_cpa_below: parseFloat(formData.get('reactivate_if_cpa_below')),
+            reactivate_if_profitable: true  // Always true since we removed the checkbox
+        };
+
+        const submitButton = document.getElementById('submitButton');
+        const originalText = submitButton.textContent;
+        const isEditing = currentEditingRuleId !== null;
+
+        submitButton.textContent = isEditing ? 'Updating...' : 'Creating...';
+        submitButton.disabled = true;
+
+        const url = isEditing ?
+            `/dashboard/api/rules/update/${currentEditingRuleId}` :
+            '/dashboard/api/rules/create';
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(ruleData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Reset form
+                e.target.reset();
+                document.getElementById('payout').value = '75';
+                document.getElementById('killNoConversion').value = '50';
+                document.getElementById('killOneConversion').value = '60';
+                document.getElementById('maxCpa').value = '60';
+                document.getElementById('reactivateCpa').value = '60';
+
+                // Reset editing state
+                currentEditingRuleId = null;
+                submitButton.textContent = 'Create Rule';
+                document.getElementById('cancelButton').style.display = 'none';
+                document.querySelector('.form-title').textContent = 'Create New Rule';
+
+                // Reload rules
+                loadRules();
+
+                const message = isEditing ? 'Rule updated successfully!' : 'Rule created successfully!';
+                alert(message);
+            } else {
+                const action = isEditing ? 'updating' : 'creating';
+                alert(`Error ${action} rule: ` + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            const action = isEditing ? 'updating' : 'creating';
+            console.error(`Error ${action} rule:`, error);
+            alert(`Error ${action} rule`);
+        })
+        .finally(() => {
+            submitButton.textContent = originalText;
+            submitButton.disabled = false;
+        });
+    });
+
+
+
+    // Edit rule
+    function editRule(ruleId) {
+        const rule = allRules.find(r => r.id === ruleId);
+        if (!rule) return;
+
+        // Set editing state
+        currentEditingRuleId = ruleId;
+
+        // Populate form with rule data
+        document.getElementById('ruleName').value = rule.name;
+        document.getElementById('payout').value = rule.payout;
+        document.getElementById('killNoConversion').value = rule.kill_on_no_conversion_spend;
+        document.getElementById('killOneConversion').value = rule.kill_on_one_conversion_spend;
+        document.getElementById('maxCpa').value = rule.max_cpa_allowed;
+        document.getElementById('reactivateCpa').value = rule.reactivate_if_cpa_below;
+
+        // Change form title and button
+        document.querySelector('.form-title').textContent = 'Edit Rule';
+        document.getElementById('submitButton').textContent = 'Update Rule';
+        document.getElementById('cancelButton').style.display = 'block';
+
+        // Scroll to form
+        document.querySelector('.rule-form-container').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Cancel edit
+    function cancelEdit() {
+        // Reset editing state
+        currentEditingRuleId = null;
+
+        // Reset form
+        document.getElementById('ruleForm').reset();
+        document.getElementById('payout').value = '75';
+        document.getElementById('killNoConversion').value = '50';
+        document.getElementById('killOneConversion').value = '60';
+        document.getElementById('maxCpa').value = '60';
+        document.getElementById('reactivateCpa').value = '60';
+
+        // Reset form UI
+        document.querySelector('.form-title').textContent = 'Create New Rule';
+        document.getElementById('submitButton').textContent = 'Create Rule';
+        document.getElementById('cancelButton').style.display = 'none';
+    }
+
+    // Duplicate rule
+    function duplicateRule(ruleId) {
+        const rule = allRules.find(r => r.id === ruleId);
+        if (!rule) return;
+
+        // Populate form with rule data but change name
+        document.getElementById('ruleName').value = rule.name + ' (Copy)';
+        document.getElementById('payout').value = rule.payout;
+        document.getElementById('killNoConversion').value = rule.kill_on_no_conversion_spend;
+        document.getElementById('killOneConversion').value = rule.kill_on_one_conversion_spend;
+        document.getElementById('maxCpa').value = rule.max_cpa_allowed;
+        document.getElementById('reactivateCpa').value = rule.reactivate_if_cpa_below;
+        // Reset editing state
+        currentEditingRuleId = null;
+
+        // Reset form state
+        document.querySelector('.form-title').textContent = 'Create New Rule';
+        document.getElementById('submitButton').textContent = 'Create Rule';
+
+        // Scroll to form
+        document.querySelector('.rule-form-container').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Delete rule
+    function deleteRule(ruleId) {
+        if (!confirm('Are you sure you want to delete this rule? This will remove it from all assigned campaigns.')) {
+            return;
+        }
+
+        fetch(`/dashboard/api/rules/delete/${ruleId}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadRules();
+                    alert('Rule deleted successfully');
+                } else {
+                    alert('Error deleting rule: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting rule:', error);
+                alert('Error deleting rule');
+            });
+    }
+</script>
+{% endblock %}

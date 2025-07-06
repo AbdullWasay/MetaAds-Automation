@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Meta Ads Automation Portal</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* Animated background elements */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .login-container {
+            display: flex;
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Left side - Branding */
+        .login-left {
+            flex: 1;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #475569 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .login-left::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 30% 20%, rgba(59, 130, 246, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 70% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        /* Right side - Login Form */
+        .login-right {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.98);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+            backdrop-filter: blur(20px);
+        }
+
+        /* Left side content */
+        .brand-content {
+            text-align: center;
+            color: white;
+            position: relative;
+            z-index: 2;
+            max-width: 500px;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 24px;
+        }
+
+        .logo i {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            padding: 20px;
+            border-radius: 20px;
+            font-size: 32px;
+            box-shadow: 0 12px 40px rgba(59, 130, 246, 0.4);
+        }
+
+        .brand-title {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #ffffff, #e2e8f0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .brand-subtitle {
+            font-size: 24px;
+            font-weight: 600;
+            color: #e2e8f0;
+            margin-bottom: 12px;
+        }
+
+        .brand-tagline {
+            font-size: 18px;
+            color: #94a3b8;
+            margin-bottom: 40px;
+            font-weight: 400;
+        }
+
+        .features-list {
+            text-align: left;
+            max-width: 400px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+            color: #e2e8f0;
+        }
+
+        .feature-item i {
+            width: 48px;
+            height: 48px;
+            background: rgba(59, 130, 246, 0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: #3b82f6;
+        }
+
+        .feature-text {
+            flex: 1;
+        }
+
+        .feature-text h4 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .feature-text p {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        /* Right side form */
+        .login-form-container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .form-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .form-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+
+        .form-subtitle {
+            font-size: 16px;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+            font-size: 14px;
+            letter-spacing: 0.025em;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 16px 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-input-icon {
+            position: relative;
+        }
+
+        .form-input-icon i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .form-input-icon .form-input {
+            padding-left: 48px;
+        }
+
+        .form-input-icon .form-input:focus + i,
+        .form-input-icon:focus-within i {
+            color: #3b82f6;
+        }
+
+        .login-button {
+            width: 100%;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 8px;
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+        }
+
+
+
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+
+        .flash-message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .flash-message.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .flash-message.error {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .flash-message.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .login-container {
+                flex-direction: column;
+            }
+
+            .login-left {
+                padding: 40px 20px;
+                min-height: 40vh;
+            }
+
+            .login-right {
+                padding: 40px 20px;
+                min-height: 60vh;
+            }
+
+            .brand-title {
+                font-size: 32px;
+            }
+
+            .brand-subtitle {
+                font-size: 18px;
+            }
+
+            .features-list {
+                display: none;
+            }
+        }
+
+        /* Loading animation */
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .loading .login-button {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+
+
+        /* Loading animation */
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .loading .login-button {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .loading .login-button::after {
+            content: '';
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Left Side - Branding -->
+        <div class="login-left">
+            <div class="brand-content">
+                <div class="logo">
+                    <i class="fas fa-rocket"></i>
+                    <span>Meta Ads Pro</span>
+                </div>
+
+                <h1 class="brand-title">Welcome Back</h1>
+                <p class="brand-subtitle">Professional Campaign Automation</p>
+                <p class="brand-tagline">Scale your advertising with intelligent automation</p>
+
+                <div class="features-list">
+                    <div class="feature-item">
+                        <i class="fas fa-chart-line"></i>
+                        <div class="feature-text">
+                            <h4>Advanced Analytics</h4>
+                            <p>Real-time performance insights and reporting</p>
+                        </div>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fas fa-robot"></i>
+                        <div class="feature-text">
+                            <h4>Smart Automation</h4>
+                            <p>AI-powered campaign optimization rules</p>
+                        </div>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fas fa-crosshairs"></i>
+                        <div class="feature-text">
+                            <h4>Precision Targeting</h4>
+                            <p>Maximize ROI with intelligent bidding</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side - Login Form -->
+        <div class="login-right">
+            <div class="login-form-container">
+                <div class="form-header">
+                    <h2 class="form-title">Sign In</h2>
+                    <p class="form-subtitle">Access your automation dashboard</p>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="flash-messages">
+                            {% for category, message in messages %}
+                                <div class="flash-message {{ category }}">{{ message }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+
+                <form method="POST" action="{{ url_for('login') }}" id="loginForm">
+                    <div class="form-group">
+                        <label for="username" class="form-label">Username</label>
+                        <div class="form-input-icon">
+                            <input type="text" id="username" name="username" class="form-input"
+                                   placeholder="Enter your username" required autocomplete="username">
+                            <i class="fas fa-user"></i>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password" class="form-label">Password</label>
+                        <div class="form-input-icon">
+                            <input type="password" id="password" name="password" class="form-input"
+                                   placeholder="Enter your password" required autocomplete="current-password">
+                            <i class="fas fa-lock"></i>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="login-button">
+                        <i class="fas fa-sign-in-alt" style="margin-right: 8px;"></i>
+                        Sign In
+                    </button>
+
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Form submission with loading state
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const form = e.target;
+            const button = form.querySelector('.login-button');
+
+            // Add loading state
+            form.classList.add('loading');
+            button.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 8px;"></i>Signing In...';
+
+            // Remove loading state after 3 seconds if form hasn't submitted
+            setTimeout(function() {
+                form.classList.remove('loading');
+                button.innerHTML = '<i class="fas fa-sign-in-alt" style="margin-right: 8px;"></i>Sign In';
+            }, 3000);
+        });
+
+        // Add subtle animations on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const leftSide = document.querySelector('.login-left');
+            const rightSide = document.querySelector('.login-right');
+
+            // Animate left side from left
+            leftSide.style.transform = 'translateX(-100px)';
+            leftSide.style.opacity = '0';
+            leftSide.style.transition = 'all 0.8s ease';
+
+            // Animate right side from right
+            rightSide.style.transform = 'translateX(100px)';
+            rightSide.style.opacity = '0';
+            rightSide.style.transition = 'all 0.8s ease';
+
+            // Trigger animations
+            setTimeout(() => {
+                leftSide.style.transform = 'translateX(0)';
+                leftSide.style.opacity = '1';
+            }, 100);
+
+            setTimeout(() => {
+                rightSide.style.transform = 'translateX(0)';
+                rightSide.style.opacity = '1';
+            }, 300);
+        });
+
+        // Auto-hide flash messages
+        setTimeout(function() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(function(message) {
+                message.style.opacity = '0';
+                message.style.transform = 'translateY(-10px)';
+                message.style.transition = 'all 0.3s ease';
+                setTimeout(function() {
+                    message.remove();
+                }, 300);
+            });
+        }, 5000);
+
+        // Focus first input on load
+        window.addEventListener('load', function() {
+            document.getElementById('username').focus();
+        });
+    </script>
+</body>
+</html>
