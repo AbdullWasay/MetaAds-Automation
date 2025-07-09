@@ -380,21 +380,11 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Load campaigns data immediately after setting account
-                    return fetch('/dashboard/api/campaigns');
+                    // Account set successfully, redirect to dashboard
+                    // Don't pre-load campaigns to avoid caching default date range
+                    window.location.href = '/dashboard';
                 } else {
                     throw new Error('Error selecting account');
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Campaigns loaded successfully, redirect to dashboard
-                    window.location.href = '/dashboard';
-                } else {
-                    // Even if campaigns fail to load, still redirect to dashboard
-                    console.warn('Campaigns failed to load, but account was set successfully');
-                    window.location.href = '/dashboard';
                 }
             })
             .catch(error => {

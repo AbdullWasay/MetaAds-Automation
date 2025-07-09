@@ -57,6 +57,152 @@
         box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
+    /* Campaign Summary Cards */
+    .campaign-summary-cards {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+        width: 100%;
+    }
+
+    .summary-card {
+        flex: 1;
+        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .summary-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #ef4444, #dc2626);
+        transition: all 0.3s ease;
+    }
+
+    .summary-card.revenue::before {
+        background: linear-gradient(90deg, #10b981, #059669);
+    }
+
+    .summary-card.roas::before {
+        background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+    }
+
+    .summary-card:hover {
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+        transform: translateY(-2px);
+        border-color: #cbd5e1;
+    }
+
+    .summary-card:hover::before {
+        height: 6px;
+    }
+
+    .summary-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: white;
+        margin: 0 auto 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .summary-card.spend .summary-icon {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+
+    .summary-card.revenue .summary-icon {
+        background: linear-gradient(135deg, #10b981, #059669);
+    }
+
+    .summary-card.roas .summary-icon {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    }
+
+    .summary-content {
+        width: 100%;
+    }
+
+    .summary-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .summary-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 4px;
+        line-height: 1;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .summary-period {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 500;
+        background: #f1f5f9;
+        padding: 3px 8px;
+        border-radius: 12px;
+        display: inline-block;
+    }
+
+    @media (max-width: 768px) {
+        .campaign-summary-cards {
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .summary-card {
+            padding: 14px 16px;
+        }
+
+        .summary-value {
+            font-size: 20px;
+        }
+
+        .summary-icon {
+            width: 36px;
+            height: 36px;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+    }
+
+    /* Campaigns Count */
+    .campaigns-count-container {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 12px;
+    }
+
+    .campaigns-count {
+        font-size: 14px;
+        color: #64748b;
+        font-weight: 600;
+        background: #f1f5f9;
+        padding: 6px 12px;
+        border-radius: 20px;
+        border: 1px solid #e2e8f0;
+    }
+
     .campaigns-table-container {
         background: white;
         border-radius: 16px;
@@ -669,6 +815,47 @@
     </button>
 </div>
 
+<!-- Campaign Summary Cards -->
+<div class="campaign-summary-cards">
+    <div class="summary-card spend">
+        <div class="summary-icon">
+            <i class="fas fa-dollar-sign"></i>
+        </div>
+        <div class="summary-content">
+            <div class="summary-title">Total Spend</div>
+            <div class="summary-value" id="totalSpendValue">$0.00</div>
+            <div class="summary-period" id="spendPeriodLabel">Selected period</div>
+        </div>
+    </div>
+
+    <div class="summary-card revenue">
+        <div class="summary-icon">
+            <i class="fas fa-chart-line"></i>
+        </div>
+        <div class="summary-content">
+            <div class="summary-title">Total Revenue</div>
+            <div class="summary-value" id="totalRevenueValue">$0.00</div>
+            <div class="summary-period" id="revenuePeriodLabel">Selected period</div>
+        </div>
+    </div>
+
+    <div class="summary-card roas">
+        <div class="summary-icon">
+            <i class="fas fa-percentage"></i>
+        </div>
+        <div class="summary-content">
+            <div class="summary-title">ROAS</div>
+            <div class="summary-value" id="totalRoasValue">0.0%</div>
+            <div class="summary-period" id="roasPeriodLabel">Selected period</div>
+        </div>
+    </div>
+</div>
+
+<!-- Total Campaigns Count -->
+<div class="campaigns-count-container">
+    <span class="campaigns-count" id="campaignsCount">0 campaigns</span>
+</div>
+
 <div class="campaigns-table-container">
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
@@ -694,6 +881,8 @@
 
     // Load campaigns on page load
     document.addEventListener('DOMContentLoaded', function() {
+        // Clear any cached campaigns to ensure fresh data
+        clearCampaignsCache();
         loadCampaigns();
     });
 
@@ -705,9 +894,9 @@
 
         // Check cache first
         if (campaignsCache[cacheKey] && (now - lastLoadTime) < CACHE_DURATION) {
-            console.log('Loading campaigns from cache');
             allCampaigns = campaignsCache[cacheKey];
-            renderCampaigns(allCampaigns);
+            // Apply all filters to cached data
+            applyAllFilters();
             return;
         }
 
@@ -721,7 +910,8 @@
                     // Cache the results
                     campaignsCache[cacheKey] = allCampaigns;
                     lastLoadTime = now;
-                    renderCampaigns(allCampaigns);
+                    // Apply all filters after loading new data
+                    applyAllFilters();
                 } else {
                     showEmptyState();
                 }
@@ -778,8 +968,8 @@
         lastLoadTime = 0;
     }
 
-    // Filter campaigns
-    function filterCampaigns() {
+    // Apply all filters (status, tracking, and date)
+    function applyAllFilters() {
         const statusFilter = document.getElementById('statusFilter').value;
         const matchFilter = document.getElementById('matchFilter').value;
 
@@ -796,9 +986,67 @@
         renderCampaigns(filteredCampaigns);
     }
 
+    // Filter campaigns (called when status or tracking filters change)
+    function filterCampaigns() {
+        applyAllFilters();
+    }
+
+
+
+    // Update summary cards and campaigns count
+    function updateSummaryCards(campaigns) {
+        let totalSpend = 0;
+        let totalRevenue = 0;
+        const campaignCount = campaigns ? campaigns.length : 0;
+
+        if (campaigns && campaigns.length > 0) {
+            campaigns.forEach(campaign => {
+                totalSpend += parseFloat(campaign.spend || 0);
+                totalRevenue += parseFloat(campaign.revenue || 0);
+            });
+        }
+
+        // Calculate ROAS
+        const roas = totalSpend > 0 ? (totalRevenue / totalSpend * 100) : 0;
+
+        // Update spend card
+        document.getElementById('totalSpendValue').textContent = `$${totalSpend.toFixed(2)}`;
+
+        // Update revenue card
+        document.getElementById('totalRevenueValue').textContent = `$${totalRevenue.toFixed(2)}`;
+
+        // Update ROAS card
+        document.getElementById('totalRoasValue').textContent = `${roas.toFixed(1)}%`;
+
+        // Update campaigns count
+        const countText = campaignCount === 1 ? '1 campaign' : `${campaignCount} campaigns`;
+        document.getElementById('campaignsCount').textContent = countText;
+
+        // Update period labels
+        const selectedPeriod = getPeriodLabel();
+        document.getElementById('spendPeriodLabel').textContent = selectedPeriod;
+        document.getElementById('revenuePeriodLabel').textContent = selectedPeriod;
+        document.getElementById('roasPeriodLabel').textContent = selectedPeriod;
+    }
+
+    // Get period label for summary cards
+    function getPeriodLabel() {
+        const dateFilter = document.getElementById('dateFilter').value;
+        switch(dateFilter) {
+            case 'today': return 'Today';
+            case 'yesterday': return 'Yesterday';
+            case 'last_7_days': return 'Last 7 days';
+            case 'last_30_days': return 'Last 30 days';
+            default: return 'Selected period';
+        }
+    }
+
     // Render campaigns table
     function renderCampaigns(campaigns) {
         const content = document.getElementById('campaignsContent');
+
+        // Update summary cards first
+        updateSummaryCards(campaigns);
 
         if (!campaigns || campaigns.length === 0) {
             showEmptyState();
