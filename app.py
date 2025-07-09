@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-to-something-secure'
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-to-something-secure')
 
 # ===============================
 # PERSISTENTE DATENBANK (SQLite)
@@ -363,10 +363,10 @@ def create_empty_user_data():
 # API CONFIGURATION
 # ===============================
 
-META_TOKEN = "EAAO4jYfx1A4BOwF0SnFbXRjVzeKv7FVfB9SEezapKZAFz2g6zrZCnGoQM2kJOnvbj1RpJYjVnRCFCPZAlxlUr4cB0NVIOEj8lAyOI5IYlEuHkDGOtvvTpZClcCkT3JlBB57UNdh0H5qi9sxOsIkIBFweGcU8NIvdK4cnPL880olcGFuZCIRZAxZCDlGRO7JXgZDZD"
+META_TOKEN = os.environ.get('META_TOKEN', "EAAO4jYfx1A4BOwF0SnFbXRjVzeKv7FVfB9SEezapKZAFz2g6zrZCnGoQM2kJOnvbj1RpJYjVnRCFCPZAlxlUr4cB0NVIOEj8lAyOI5IYlEuHkDGOtvvTpZClcCkT3JlBB57UNdh0H5qi9sxOsIkIBFweGcU8NIvdK4cnPL880olcGFuZCIRZAxZCDlGRO7JXgZDZD")
 
 REDTRACK_CONFIG = {
-    "api_key": "VbxluETPTeNxPLmyawYz",
+    "api_key": os.environ.get('REDTRACK_API_KEY', "VbxluETPTeNxPLmyawYz"),
     "base_url": "https://api.redtrack.io/v1"
 }
 
@@ -1748,10 +1748,13 @@ def get_dashboard_stats(campaigns=None):
 # ===============================
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') == 'development'
+
     print("🚀 Starting REVOLUTIONARY Auto-Automation Flask App")
     print("=" * 80)
-    print("🔗 Login: http://localhost:5000/")
-    print("🎯 Dashboard: http://localhost:5000/dashboard (after login)")
+    print(f"🔗 Login: http://localhost:{port}/")
+    print(f"🎯 Dashboard: http://localhost:{port}/dashboard (after login)")
     print("🔧 REVOLUTIONARY FEATURES:")
     print("   ✅ AUTOMATIC Automation - Starts sofort bei Regel-Zuweisung!")
     print("   ✅ DYNAMIC Payouts - Verwendet Regel-Payout statt hardcoded $75!")
@@ -1760,4 +1763,4 @@ if __name__ == '__main__':
     print("   ✅ Fast loading & flüssige Performance")
     print("   ✅ Cleaned up - removed unnecessary buttons")
     print("=" * 80)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug, host='0.0.0.0', port=port)
