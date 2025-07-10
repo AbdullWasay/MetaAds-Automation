@@ -431,13 +431,46 @@
     let allRules = [];
     let currentEditingRuleId = null;
 
+    // Global cache for fast loading
+    let globalCachedData = null;
+
     // Load data on page load
     document.addEventListener('DOMContentLoaded', function() {
-        loadRules();
+        loadRulesOptimized();
     });
 
-    // Load rules
+    // Optimized rules loading using global cache
+    function loadRulesOptimized() {
+        fetch('/dashboard/api/get-all-data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    globalCachedData = data.data;
+                    allRules = data.data.rules || [];
+                    renderRules(allRules);
+
+                    if (data.data.last_refresh) {
+                        const refreshTime = new Date(data.data.last_refresh).toLocaleTimeString();
+                        console.log(`📋 Rules data last refreshed at: ${refreshTime}`);
+                    }
+                } else {
+                    console.error('Failed to load rules:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading rules:', error);
+            });
+    }
+
+
+
+    // Load rules (keep for backward compatibility)
     function loadRules() {
+        loadRulesOptimized();
+    }
+
+    // Old load rules method (keep for fallback)
+    function loadRulesOld() {
         fetch('/dashboard/api/rules/list')
             .then(response => response.json())
             .then(data => {

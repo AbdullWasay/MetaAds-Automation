@@ -8,6 +8,7 @@ import time
 import os
 import pickle
 import sqlite3
+import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -291,6 +292,7 @@ def login():
         if username in VALID_CREDENTIALS and VALID_CREDENTIALS[username] == password:
             session['logged_in'] = True
             session['username'] = username
+            session['first_dashboard_visit'] = True  # Flag for first dashboard visit
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
         else:
@@ -321,10 +323,64 @@ def login_required(f):
     return decorated_function
 
 # ===============================
-# USER DATA MANAGEMENT
+# USER DATA MANAGEMENT & ACTIVITY LOGGING
 # ===============================
 
 user_data_store = {}
+
+def log_activity(username, activity_type, title, description, icon="system", badge="info"):
+    """Log user activity for Recent Activity section"""
+    user_data = get_user_data(username)
+
+    if "activities" not in user_data:
+        user_data["activities"] = []
+
+    activity = {
+        "id": str(uuid.uuid4()),
+        "type": activity_type,
+        "title": title,
+        "description": description,
+        "icon": icon,  # system, rule, campaign, play, pause
+        "badge": badge,  # success, warning, info, error
+        "timestamp": datetime.now().isoformat(),
+        "time_ago": "Just now"
+    }
+
+    # Add to beginning of list (most recent first)
+    user_data["activities"].insert(0, activity)
+
+    # Keep only last 20 activities
+    user_data["activities"] = user_data["activities"][:20]
+
+    save_user_data(username)
+    print(f"📝 Activity logged for {username}: {title}")
+
+def get_recent_activities(username, limit=10):
+    """Get recent activities for a user"""
+    user_data = get_user_data(username)
+    activities = user_data.get("activities", [])
+
+    # Update time_ago for each activity
+    for activity in activities:
+        try:
+            activity_time = datetime.fromisoformat(activity["timestamp"])
+            time_diff = datetime.now() - activity_time
+
+            if time_diff.total_seconds() < 60:
+                activity["time_ago"] = "Just now"
+            elif time_diff.total_seconds() < 3600:
+                minutes = int(time_diff.total_seconds() / 60)
+                activity["time_ago"] = f"{minutes} min ago"
+            elif time_diff.total_seconds() < 86400:
+                hours = int(time_diff.total_seconds() / 3600)
+                activity["time_ago"] = f"{hours} hour{'s' if hours > 1 else ''} ago"
+            else:
+                days = int(time_diff.total_seconds() / 86400)
+                activity["time_ago"] = f"{days} day{'s' if days > 1 else ''} ago"
+        except:
+            activity["time_ago"] = "Unknown"
+
+    return activities[:limit]
 
 def get_user_data(username):
     """Get user-specific dashboard data"""
@@ -356,8 +412,195 @@ def create_empty_user_data():
         "campaigns": [],
         "current_account": None,
         "redtrack_data": {},
-        "analysis": {}
+        "analysis": {},
+        "cached_data": {
+            "campaigns": [],
+            "rules": [],
+            "dashboard_stats": {},
+            "chart_data": [],
+            "last_refresh": None
+        }
     }
+
+def is_data_fresh(username, max_age_minutes=5):
+    """Check if cached data is still fresh"""
+    user_data = get_user_data(username)
+    last_refresh = user_data["cached_data"].get("last_refresh")
+
+    if not last_refresh:
+        return False
+
+    try:
+        last_refresh_time = datetime.fromisoformat(last_refresh)
+        age_minutes = (datetime.now() - last_refresh_time).total_seconds() / 60
+        return age_minutes < max_age_minutes
+    except:
+        return False
+
+def refresh_all_data(username, force=False):
+    """Refresh all data for a user - single API call for everything"""
+    try:
+        user_data = get_user_data(username)
+
+        # Ensure cached_data structure exists
+        if "cached_data" not in user_data:
+            user_data["cached_data"] = {
+                "campaigns": [],
+                "rules": [],
+                "dashboard_stats": {},
+                "chart_data": [],
+                "last_refresh": None
+            }
+            save_user_data(username)
+
+        # Check if refresh is needed
+        if not force and is_data_fresh(username):
+            print(f"📋 Using cached data for {username} (still fresh)")
+            return user_data["cached_data"]
+
+        if not user_data.get("current_account"):
+            print(f"❌ No account selected for {username}")
+            return user_data["cached_data"]
+    except Exception as e:
+        print(f"❌ Error in refresh_all_data setup: {e}")
+        return {
+            "campaigns": [],
+            "rules": [],
+            "dashboard_stats": {},
+            "chart_data": [],
+            "last_refresh": None
+        }
+
+    account_id = user_data['current_account']['id']
+
+    try:
+        print(f"🔄 Refreshing all data for {username}...")
+
+        # Get date ranges
+        date_ranges = get_date_range("last_30_days")
+
+        # Single API call to get all campaign data
+        print("📊 Loading Meta campaigns...")
+        metas = fetch_meta_campaigns_and_spend(account_id, date_ranges["meta"], META_TOKEN)
+
+        print("🔍 Loading RedTrack revenue...")
+        rt = fetch_redtrack_data(date_ranges["redtrack"], REDTRACK_CONFIG["api_key"])
+        redtrack_by_id = rt["by_id"]
+        redtrack_by_name = rt["by_name"]
+
+        print("📈 Loading Meta conversions...")
+        meta_conv_data = fetch_meta_conversions(account_id, date_ranges["meta"], META_TOKEN)
+        meta_conversions = meta_conv_data["conversions"]
+        meta_revenue = meta_conv_data["revenue"]
+
+        # Process campaigns with all data
+        campaigns = []
+        total_spend = 0
+        total_revenue = 0
+        matched_campaigns = 0
+        hybrid_used = 0
+
+        for meta_campaign in metas:
+            cid = meta_campaign["id"]
+            name = meta_campaign["name"]
+            spend = meta_campaign["spend"]
+            status = meta_campaign["status"]
+            objective = meta_campaign["objective"]
+
+            # Try RedTrack matching
+            rt_revenue = redtrack_by_id.get(cid, 0)
+            if rt_revenue == 0:
+                rt_revenue = redtrack_by_name.get(name, 0)
+                match_type = "Name Match" if rt_revenue > 0 else "No Match"
+            else:
+                match_type = "ID Match"
+
+            # Try Meta revenue as fallback
+            meta_rev = meta_revenue.get(cid, 0)
+
+            # Use hybrid approach
+            if rt_revenue > 0:
+                revenue = rt_revenue
+                revenue_source = "RedTrack"
+                if rt_revenue > 0:
+                    hybrid_used += 1
+            elif meta_rev > 0:
+                revenue = meta_rev
+                revenue_source = "Meta"
+                hybrid_used += 1
+            else:
+                revenue = 0
+                revenue_source = "None"
+
+            if match_type != "No Match":
+                matched_campaigns += 1
+
+            # Get conversions
+            conversions = meta_conversions.get(cid, 0)
+
+            # Calculate metrics
+            cpa = spend / conversions if conversions > 0 else 0
+            roas = revenue / spend if spend > 0 else 0
+            profit = revenue - spend
+
+            campaign_data = {
+                "id": cid,
+                "name": name,
+                "spend": spend,
+                "revenue": revenue,
+                "profit": profit,
+                "conversions": conversions,
+                "cpa": round(cpa, 2),
+                "roas": round(roas, 2),
+                "status": status,
+                "objective": objective,
+                "match_type": match_type,
+                "revenue_source": revenue_source
+            }
+
+            campaigns.append(campaign_data)
+            total_spend += spend
+            total_revenue += revenue
+
+        # Sort campaigns
+        campaigns.sort(key=lambda x: (
+            0 if x["status"] == "ACTIVE" else 1,
+            0 if x["match_type"] != "No Match" else 1,
+            x["name"].lower()
+        ))
+
+        # Load rules
+        rules = load_rules_from_db(username)
+
+        # Calculate dashboard stats
+        dashboard_stats = get_dashboard_stats(campaigns)
+
+        # Get chart data
+        chart_data = get_cached_chart_data(username, account_id)
+
+        # Cache everything
+        user_data["cached_data"] = {
+            "campaigns": campaigns,
+            "rules": rules,
+            "dashboard_stats": dashboard_stats,
+            "chart_data": chart_data,
+            "last_refresh": datetime.now().isoformat(),
+            "total_spend": total_spend,
+            "total_revenue": total_revenue,
+            "matched_campaigns": matched_campaigns,
+            "hybrid_used": hybrid_used
+        }
+
+        # Also update the main campaigns for backward compatibility
+        user_data["campaigns"] = campaigns
+        save_user_data(username)
+
+        print(f"✅ Data refreshed for {username}: {len(campaigns)} campaigns, {len(rules)} rules")
+        return user_data["cached_data"]
+
+    except Exception as e:
+        print(f"❌ Error refreshing data for {username}: {str(e)}")
+        return user_data["cached_data"]
 
 # ===============================
 # API CONFIGURATION
@@ -392,6 +635,10 @@ def get_date_range(period):
             end = now
         elif period == "last_30_days":
             start = (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = now
+        elif period == "all_time":
+            # All time data - start from a very early date (e.g., 2 years ago)
+            start = (now - timedelta(days=730)).replace(hour=0, minute=0, second=0, microsecond=0)
             end = now
         else:
             start = (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -567,14 +814,14 @@ class AutomationEngine:
         campaign_id = evaluation["campaign_id"]
         
         if evaluation["action"] == "kill":
-            result = toggle_campaign_status(campaign_id, "PAUSED")
+            result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule["name"])
             if result["success"]:
                 return {"success": True, "message": f"Campaign paused: {evaluation['reason']}"}
             else:
                 return {"success": False, "message": f"Failed to pause campaign: {result.get('error')}"}
-        
+
         elif evaluation["action"] == "reactivate":
-            result = toggle_campaign_status(campaign_id, "ACTIVE")
+            result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule["name"])
             if result["success"]:
                 return {"success": True, "message": f"Campaign reactivated: {evaluation['reason']}"}
             else:
@@ -1037,7 +1284,7 @@ def load_campaigns_with_hybrid_tracking(date_range="last_30_days"):
         print(f"❌ Hybrid tracking error: {str(e)}")
         return {"success": False, "error": str(e)}
 
-def toggle_campaign_status(campaign_id, new_status):
+def toggle_campaign_status(campaign_id, new_status, triggered_by_rule=False, rule_name=None):
     """Toggle campaign status"""
     try:
         response = requests.post(
@@ -1048,20 +1295,44 @@ def toggle_campaign_status(campaign_id, new_status):
             },
             timeout=10
         )
-        
+
         if response.status_code == 200:
             username = session.get('username', 'anonymous')
             user_data = get_user_data(username)
-            
+
+            campaign_name = "Unknown Campaign"
             for campaign in user_data["campaigns"]:
                 if campaign["id"] == campaign_id:
                     campaign["status"] = new_status
+                    campaign_name = campaign.get("name", "Unknown Campaign")
                     break
-            
+
             save_user_data(username)
-            
+
+            # Log activity
+            if triggered_by_rule and rule_name:
+                action_text = "paused" if new_status == "PAUSED" else "activated"
+                log_activity(
+                    username=username,
+                    activity_type="rule_triggered",
+                    title="Rule Triggered",
+                    description=f"Rule '{rule_name}' {action_text} campaign '{campaign_name}'",
+                    icon="pause" if new_status == "PAUSED" else "play",
+                    badge="warning" if new_status == "PAUSED" else "success"
+                )
+            else:
+                action_text = "paused" if new_status == "PAUSED" else "activated"
+                log_activity(
+                    username=username,
+                    activity_type="campaign_status_changed",
+                    title="Campaign Status Changed",
+                    description=f"Campaign '{campaign_name}' manually {action_text}",
+                    icon="pause" if new_status == "PAUSED" else "play",
+                    badge="info"
+                )
+
             return {
-                "success": True, 
+                "success": True,
                 "message": f"Campaign successfully {new_status}",
                 "campaign_id": campaign_id,
                 "new_status": new_status
@@ -1110,6 +1381,21 @@ def create_rule():
 
         save_rule_to_db(username, rule)
 
+        # Log activity
+        log_activity(
+            username=username,
+            activity_type="rule_created",
+            title="Rule Created",
+            description=f"Created new automation rule '{rule['name']}' with ${rule['payout']} payout",
+            icon="rule",
+            badge="success"
+        )
+
+        # Invalidate cache to force refresh
+        user_data = get_user_data(username)
+        user_data["cached_data"]["last_refresh"] = None
+        save_user_data(username)
+
         return jsonify({"success": True, "rule": rule})
 
     except Exception as e:
@@ -1151,6 +1437,21 @@ def update_rule(rule_id):
 
         save_rule_to_db(username, rule)
 
+        # Log activity
+        log_activity(
+            username=username,
+            activity_type="rule_updated",
+            title="Rule Updated",
+            description=f"Updated automation rule '{rule['name']}' with new settings",
+            icon="rule",
+            badge="info"
+        )
+
+        # Invalidate cache to force refresh
+        user_data = get_user_data(username)
+        user_data["cached_data"]["last_refresh"] = None
+        save_user_data(username)
+
         return jsonify({"success": True, "rule": rule})
 
     except Exception as e:
@@ -1159,10 +1460,15 @@ def update_rule(rule_id):
 @app.route('/dashboard/api/rules/list', methods=['GET'])
 @login_required
 def list_rules():
-    """List all rules for current user"""
+    """List all rules for current user from cache"""
     username = session.get('username')
-    rules = load_rules_from_db(username)
-    return jsonify({"success": True, "rules": rules})
+    cached_data = refresh_all_data(username, force=False)
+
+    return jsonify({
+        "success": True,
+        "rules": cached_data.get("rules", []),
+        "last_refresh": cached_data.get("last_refresh")
+    })
 
 @app.route('/dashboard/api/rules/assign/<campaign_id>/<rule_id>', methods=['POST'])
 @login_required
@@ -1184,14 +1490,28 @@ def assign_rule_to_campaign(campaign_id, rule_id):
             return jsonify({"success": False, "error": "Campaign not found"})
         
         success = assign_rule_to_campaign_db(username, campaign_id, rule_id)
-        
+
         if success:
+            # Get rule and campaign names for logging
+            rule_name = next((r['name'] for r in rules if r['id'] == rule_id), "Unknown Rule")
+            campaign_name = next((c['name'] for c in user_data.get('campaigns', []) if c['id'] == campaign_id), "Unknown Campaign")
+
+            # Log activity
+            log_activity(
+                username=username,
+                activity_type="rule_assigned",
+                title="Rule Assigned",
+                description=f"Assigned rule '{rule_name}' to campaign '{campaign_name}'",
+                icon="campaign",
+                badge="success"
+            )
+
             # 🚀 AUTOMATIC AUTOMATION START - Keine Buttons mehr nötig!
             print(f"🚀 Auto-starting automation for {username} after rule assignment")
             start_user_automation(username)
-            
+
             return jsonify({
-                "success": True, 
+                "success": True,
                 "message": f"Rule assigned and automation auto-started!",
                 "campaign_id": campaign_id,
                 "rule_id": rule_id,
@@ -1231,15 +1551,30 @@ def delete_rule(rule_id):
     """Delete rule completely"""
     try:
         username = session.get('username')
+
+        # Get rule name before deletion
+        rules = load_rules_from_db(username)
+        rule_name = next((r['name'] for r in rules if r['id'] == rule_id), "Unknown Rule")
+
         delete_rule_from_db(username, rule_id)
-        
+
+        # Log activity
+        log_activity(
+            username=username,
+            activity_type="rule_deleted",
+            title="Rule Deleted",
+            description=f"Deleted automation rule '{rule_name}'",
+            icon="rule",
+            badge="warning"
+        )
+
         # Check if user still has active assignments
         if not has_active_rule_assignments(username):
             print(f"⏹️ No more rule assignments for {username}, stopping automation")
             stop_user_automation(username)
-        
+
         return jsonify({
-            "success": True, 
+            "success": True,
             "message": "Rule deleted successfully"
         })
         
@@ -1289,6 +1624,58 @@ def get_automation_status_api():
     })
 
 # ===============================
+# OPTIMIZED API ROUTES WITH CACHING
+# ===============================
+
+@app.route('/dashboard/api/refresh-all', methods=['POST'])
+@login_required
+def refresh_all_data_api():
+    """Refresh all data - single API call for everything"""
+    username = session.get('username')
+
+    # Refresh regular cached data (last 30 days for campaigns list)
+    cached_data = refresh_all_data(username, force=True)
+
+    # Get all-time dashboard stats separately
+    print("📊 Calculating all-time dashboard stats...")
+    all_time_stats = get_all_time_dashboard_stats(username)
+
+    return jsonify({
+        "success": True,
+        "message": "All data refreshed successfully",
+        "data": {
+            "campaigns": cached_data.get("campaigns", []),
+            "rules": cached_data.get("rules", []),
+            "dashboard_stats": {
+                "total_spend": all_time_stats.get("spend", 0),
+                "total_revenue": all_time_stats.get("revenue", 0),
+                "avg_roas": all_time_stats.get("roas", 0),
+                "active_campaigns": all_time_stats.get("active", 0),
+                "total_campaigns": all_time_stats.get("campaigns", 0)
+            },
+            "last_refresh": cached_data.get("last_refresh")
+        },
+        "campaigns_count": len(cached_data.get("campaigns", [])),
+        "rules_count": len(cached_data.get("rules", [])),
+        "last_refresh": cached_data.get("last_refresh")
+    })
+
+@app.route('/dashboard/api/get-all-data', methods=['GET'])
+@login_required
+def get_all_data_api():
+    """Get all cached data or refresh if needed"""
+    username = session.get('username')
+
+    # Get cached data (will refresh if stale)
+    cached_data = refresh_all_data(username, force=False)
+
+    return jsonify({
+        "success": True,
+        "data": cached_data,
+        "is_fresh": is_data_fresh(username)
+    })
+
+# ===============================
 # STANDARD API ROUTES
 # ===============================
 
@@ -1319,54 +1706,57 @@ def set_account_api(account_id):
 @app.route('/dashboard/api/campaigns', methods=['GET'])
 @login_required
 def get_campaigns():
-    """Get campaigns"""
-    return jsonify(load_campaigns_with_hybrid_tracking())
+    """Get campaigns from cache or refresh if needed"""
+    username = session.get('username')
+    cached_data = refresh_all_data(username, force=False)
+
+    return jsonify({
+        "success": True,
+        "campaigns": cached_data.get("campaigns", []),
+        "count": len(cached_data.get("campaigns", [])),
+        "total_spend": cached_data.get("total_spend", 0),
+        "total_revenue": cached_data.get("total_revenue", 0),
+        "matched_count": cached_data.get("matched_campaigns", 0),
+        "hybrid_used": cached_data.get("hybrid_used", 0),
+        "last_refresh": cached_data.get("last_refresh")
+    })
 
 @app.route('/dashboard/api/campaigns/<date_range>', methods=['GET'])
 @login_required
 def get_campaigns_date_range(date_range):
-    """Get campaigns for specific date range"""
-    return jsonify(load_campaigns_with_hybrid_tracking(date_range))
+    """Get campaigns for specific date range - still uses old method for different date ranges"""
+    if date_range == "last_30_days":
+        # Use cached data for default range
+        return get_campaigns()
+    else:
+        # Use old method for other date ranges
+        return jsonify(load_campaigns_with_hybrid_tracking(date_range))
 
 @app.route('/dashboard/api/dashboard-stats', methods=['GET'])
 @login_required
 def get_dashboard_stats_api():
-    """Get dashboard stats - loads campaigns only if needed"""
-    username = session.get('username', 'anonymous')
-    user_data = get_user_data(username)
-
-    # Use cached campaigns if available
-    campaigns = user_data.get('campaigns', [])
-
-    # Only load fresh if no cached data and account is selected
-    if not campaigns and user_data.get("current_account"):
-        campaigns_result = load_campaigns_with_hybrid_tracking("last_30_days")
-        campaigns = campaigns_result.get('campaigns', []) if campaigns_result.get('success') else []
-        # Cache the results
-        user_data['campaigns'] = campaigns
-        save_user_data(username)
-
-    stats = get_dashboard_stats(campaigns)
+    """Get dashboard stats from cache"""
+    username = session.get('username')
+    cached_data = refresh_all_data(username, force=False)
 
     return jsonify({
         'success': True,
-        'stats': stats,
-        'campaigns_count': len(campaigns)
+        'stats': cached_data.get("dashboard_stats", {}),
+        'campaigns_count': len(cached_data.get("campaigns", [])),
+        'last_refresh': cached_data.get("last_refresh")
     })
 
 @app.route('/dashboard/api/chart-data', methods=['GET'])
 @login_required
 def get_chart_data_api():
-    """Get current chart data (cached or fresh)"""
-    username = session.get('username', 'anonymous')
-    user_data = get_user_data(username)
-    account_id = user_data.get("current_account", {}).get("id") if user_data.get("current_account") else None
-
-    chart_data = get_cached_chart_data(username, account_id)
+    """Get chart data from cache"""
+    username = session.get('username')
+    cached_data = refresh_all_data(username, force=False)
 
     return jsonify({
         'success': True,
-        'chart_data': chart_data
+        'chart_data': cached_data.get("chart_data", []),
+        'last_refresh': cached_data.get("last_refresh")
     })
 
 @app.route('/dashboard/api/toggle-campaign/<campaign_id>/<new_status>', methods=['POST'])
@@ -1375,6 +1765,28 @@ def toggle_campaign_api(campaign_id, new_status):
     """Toggle campaign status"""
     return jsonify(toggle_campaign_status(campaign_id, new_status))
 
+@app.route('/dashboard/api/activities', methods=['GET'])
+@login_required
+def get_recent_activities_api():
+    """Get recent activities for current user"""
+    try:
+        username = session.get('username')
+        activities = get_recent_activities(username, limit=10)
+
+        return jsonify({
+            "success": True,
+            "activities": activities,
+            "count": len(activities)
+        })
+    except Exception as e:
+        print(f"❌ Error getting activities: {e}")
+        return jsonify({
+            "success": False,
+            "activities": [],
+            "count": 0,
+            "error": str(e)
+        })
+
 # ===============================
 # DASHBOARD ROUTE
 # ===============================
@@ -1382,43 +1794,65 @@ def toggle_campaign_api(campaign_id, new_status):
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Dashboard page with modern UI - shows all-time stats"""
+    """Dashboard page with loading states - loads fresh data on first visit"""
     username = session.get('username', 'anonymous')
-    user_data = get_user_data(username)
 
-    # Auto-start automation if user has active rule assignments
-    if has_active_rule_assignments(username):
-        start_user_automation(username)
+    try:
+        user_data = get_user_data(username)
 
-    # Always load fresh all-time campaigns for dashboard stats (not affected by filters)
-    if user_data.get("current_account"):
-        # Load fresh all-time data for dashboard stats
-        campaigns_result = load_campaigns_with_hybrid_tracking("last_30_days")
-        all_time_campaigns = campaigns_result.get('campaigns', []) if campaigns_result.get('success') else []
+        # Auto-start automation if user has active rule assignments (lightweight check)
+        try:
+            if has_active_rule_assignments(username):
+                start_user_automation(username)
+        except Exception as e:
+            print(f"⚠️ Could not check automation status: {e}")
 
-        # Cache the campaigns for other uses
-        user_data['campaigns'] = all_time_campaigns
-        save_user_data(username)
-    else:
-        all_time_campaigns = []
+        # Check if this is first visit after login
+        first_visit = session.pop('first_dashboard_visit', False)
 
-    # Generate chart data - use cached if available, otherwise load async
-    account_id = user_data.get("current_account", {}).get("id") if user_data.get("current_account") else None
-    chart_data = get_cached_chart_data(username, account_id)
+        if first_visit:
+            print(f"🎯 First dashboard visit for {username} - will load fresh data")
 
-    # Dashboard stats always show all-time totals (never affected by filters)
-    stats = get_dashboard_stats(all_time_campaigns)
+        # Always start with loading states - JavaScript will load fresh data
+        template_data = {
+            'username': username,
+            'campaigns': [],  # Empty initially, will be loaded via API
+            'stats': {
+                'campaigns': 0,
+                'active': 0,
+                'matched': 0,
+                'spend': 0,
+                'revenue': 0,
+                'roas': 0
+            },
+            'matched_count': 0,
+            'output': user_data.get('output', ''),
+            'chart_data': [],
+            'first_load': first_visit  # Flag to indicate this is first load
+        }
 
-    template_data = {
-        'username': username,
-        'campaigns': all_time_campaigns,
-        'stats': stats,
-        'matched_count': stats['matched'],
-        'output': user_data.get('output', ''),
-        'chart_data': chart_data
-    }
+        return render_template('dashboard.html', **template_data)
 
-    return render_template('dashboard.html', **template_data)
+    except Exception as e:
+        print(f"❌ Dashboard error: {e}")
+        # Return minimal dashboard on error
+        template_data = {
+            'username': username,
+            'campaigns': [],
+            'stats': {
+                'campaigns': 0,
+                'active': 0,
+                'matched': 0,
+                'spend': 0,
+                'revenue': 0,
+                'roas': 0
+            },
+            'matched_count': 0,
+            'output': '',
+            'chart_data': [],
+            'first_load': True
+        }
+        return render_template('dashboard.html', **template_data)
 
 @app.route('/campaigns')
 @login_required
@@ -1711,12 +2145,7 @@ def generate_sample_chart_data():
     }
 
 def get_dashboard_stats(campaigns=None):
-    """Calculate dashboard statistics"""
-    if not campaigns:
-        username = session.get('username', 'anonymous')
-        user_data = get_user_data(username)
-        campaigns = user_data.get("campaigns", [])
-
+    """Calculate dashboard statistics from provided campaigns"""
     if not campaigns:
         return {
             'campaigns': 0,
@@ -1742,6 +2171,79 @@ def get_dashboard_stats(campaigns=None):
         'revenue': round(total_revenue, 2),
         'roas': round(roas, 1)
     }
+
+def get_all_time_dashboard_stats(username):
+    """Get all-time dashboard statistics by fetching all-time campaign data"""
+    try:
+        user_data = get_user_data(username)
+
+        if not user_data.get("current_account"):
+            print(f"❌ No account selected for {username}")
+            return {
+                'campaigns': 0,
+                'active': 0,
+                'matched': 0,
+                'spend': 0,
+                'revenue': 0,
+                'roas': 0
+            }
+
+        account_id = user_data['current_account']['id']
+
+        # Get all-time date ranges
+        date_ranges = get_date_range("all_time")
+
+        print(f"📊 Loading all-time Meta campaigns for dashboard stats...")
+        metas = fetch_meta_campaigns_and_spend(account_id, date_ranges["meta"], META_TOKEN)
+
+        print(f"🔍 Loading all-time RedTrack revenue for dashboard stats...")
+        rt = fetch_redtrack_data(date_ranges["redtrack"], REDTRACK_CONFIG["api_key"])
+        redtrack_by_id = rt["by_id"]
+        redtrack_by_name = rt["by_name"]
+
+        print(f"📈 Loading all-time Meta conversions for dashboard stats...")
+        meta_conv_data = fetch_meta_conversions(account_id, date_ranges["meta"], META_TOKEN)
+        meta_conversions = meta_conv_data["conversions"]
+        meta_revenue = meta_conv_data["revenue"]
+
+        # Process campaigns with all-time data
+        campaigns = []
+        for meta in metas:
+            campaign_id = meta["id"]
+            campaign_name = meta["name"]
+            spend = float(meta.get("spend", 0))
+
+            # Try RedTrack revenue by ID first, then by name
+            revenue = redtrack_by_id.get(campaign_id, 0)
+            if revenue == 0:
+                revenue = redtrack_by_name.get(campaign_name, 0)
+
+            # If no RedTrack revenue, try Meta revenue
+            if revenue == 0:
+                revenue = meta_revenue.get(campaign_id, 0)
+
+            campaigns.append({
+                "id": campaign_id,
+                "name": campaign_name,
+                "spend": spend,
+                "revenue": revenue,
+                "status": meta.get("status", "UNKNOWN"),
+                "match_type": "RedTrack Match" if revenue > 0 else "No Match"
+            })
+
+        # Calculate and return stats
+        return get_dashboard_stats(campaigns)
+
+    except Exception as e:
+        print(f"❌ Error getting all-time dashboard stats: {str(e)}")
+        return {
+            'campaigns': 0,
+            'active': 0,
+            'matched': 0,
+            'spend': 0,
+            'revenue': 0,
+            'roas': 0
+        }
 
 # ===============================
 # FLASK APP STARTUP

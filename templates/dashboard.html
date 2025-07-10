@@ -2,7 +2,14 @@
 
 {% block title %}Dashboard - Meta Ads Automation{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
-{% block page_subtitle %}Overview of your campaign performance and automation status{% endblock %}
+{% block page_subtitle %}
+    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+        <span>Overview of your campaign performance and automation status</span>
+        <button id="refreshBtn" class="btn btn-primary" style="margin-left: auto;">
+            <i class="fas fa-sync-alt"></i> Refresh Data
+        </button>
+    </div>
+{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -103,111 +110,196 @@
 
     /* Dashboard Content Layout */
     .dashboard-content {
-        display: flex;
-        gap: 20px;
         margin-top: 24px;
     }
 
-    .chart-section {
-        flex: 3;
+    .activity-section {
         background: white;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         border: 1px solid #e2e8f0;
+        transition: all 0.3s ease;
     }
 
-    .notifications-section {
-        flex: 1;
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        border: 1px solid #e2e8f0;
+    .activity-section:hover {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
     }
 
-    .chart-title, .notifications-title {
-        font-size: 16px;
+    .section-title {
+        font-size: 20px;
         font-weight: 700;
         color: #1e293b;
-        margin-bottom: 16px;
-        padding-bottom: 10px;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
         border-bottom: 2px solid #f1f5f9;
+        display: flex;
+        align-items: center;
+        gap: 10px;
     }
 
-    .chart-container {
-        position: relative;
-        height: 280px;
+    .section-title i {
+        color: #6366f1;
     }
 
-    #revenueSpendChart {
-        width: 100% !important;
-        height: 100% !important;
-    }
-
-    /* Notifications */
-    .notifications-container {
-        max-height: 280px;
+    /* Recent Activity */
+    .recent-activity {
+        max-height: 500px;
         overflow-y: auto;
+        padding-right: 8px;
     }
 
-    .notification-item {
+    .recent-activity::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .recent-activity::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 3px;
+    }
+
+    .recent-activity::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+    }
+
+    .recent-activity::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+
+    .activity-item {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
-        padding: 12px 0;
-        border-bottom: 1px solid #f1f5f9;
+        gap: 16px;
+        padding: 16px;
+        margin-bottom: 12px;
+        background: #f8fafc;
+        border-radius: 12px;
+        border-left: 4px solid #e2e8f0;
+        transition: all 0.3s ease;
     }
 
-    .notification-item:last-child {
-        border-bottom: none;
+    .activity-item:hover {
+        background: #f1f5f9;
+        border-left-color: #6366f1;
+        transform: translateX(4px);
     }
 
-    .notification-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    .activity-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .activity-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 18px;
         color: white;
-        font-size: 12px;
         flex-shrink: 0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
-    .notification-content {
+    .activity-icon.pause {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+
+    .activity-icon.play {
+        background: linear-gradient(135deg, #10b981, #059669);
+    }
+
+    .activity-icon.rule {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    }
+
+    .activity-icon.campaign {
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+    }
+
+    .activity-icon.system {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+    }
+
+    .activity-content {
         flex: 1;
         min-width: 0;
     }
 
-    .notification-text {
+    .activity-title {
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 4px;
+        font-size: 15px;
+    }
+
+    .activity-description {
         font-size: 13px;
-        color: #374151;
-        margin-bottom: 3px;
-        line-height: 1.3;
+        color: #64748b;
+        line-height: 1.4;
+        margin-bottom: 6px;
     }
 
-    .notification-time {
+    .activity-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+    .activity-time {
         font-size: 11px;
-        color: #9ca3af;
+        color: #94a3b8;
+        background: #e2e8f0;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-weight: 500;
     }
 
-    @media (max-width: 1024px) {
-        .dashboard-content {
-            flex-direction: column;
+    .activity-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .activity-badge.success {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .activity-badge.warning {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .activity-badge.info {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    @media (max-width: 768px) {
+        .activity-item {
+            padding: 12px;
+            gap: 12px;
         }
 
-        .chart-section, .notifications-section {
-            flex: none;
+        .activity-icon {
+            width: 36px;
+            height: 36px;
+            font-size: 16px;
         }
 
-        .chart-container {
-            height: 240px;
+        .activity-title {
+            font-size: 14px;
         }
 
-        .notifications-container {
-            max-height: 200px;
+        .activity-description {
+            font-size: 12px;
         }
     }
 
@@ -338,6 +430,65 @@
             font-size: 24px;
         }
     }
+
+
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* No Activities Message */
+    .no-activities {
+        text-align: center;
+        padding: 40px 20px;
+    }
+
+    .no-activities-content {
+        max-width: 400px;
+        margin: 0 auto;
+    }
+
+    .no-activities ul {
+        list-style: none;
+        padding: 0;
+    }
+
+    .no-activities li {
+        padding: 4px 0;
+        position: relative;
+        padding-left: 20px;
+    }
+
+    .no-activities li:before {
+        content: "•";
+        color: #6366f1;
+        font-weight: bold;
+        position: absolute;
+        left: 0;
+    }
+
+    .activity-loading {
+        text-align: center;
+        padding: 40px 20px;
+    }
+
+    /* Stat Loading States */
+    .stat-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 40px;
+        color: #6366f1;
+    }
+
+    .stat-loading i {
+        font-size: 20px;
+    }
+
+    .stat-value.loaded .stat-loading {
+        display: none;
+    }
 </style>
 {% endblock %}
 
@@ -351,37 +502,53 @@
                 <i class="fas fa-bullhorn"></i>
             </div>
         </div>
-        <div class="stat-value">{{ stats.campaigns }}</div>
+        <div class="stat-value" id="stat-campaigns">
+            <div class="stat-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+        </div>
     </div>
 
     <div class="stat-card">
         <div class="stat-header">
-            <div class="stat-title">Total Spend</div>
+            <div class="stat-title">All-Time Spend</div>
             <div class="stat-icon spend">
                 <i class="fas fa-dollar-sign"></i>
             </div>
         </div>
-        <div class="stat-value">${{ "%.2f"|format(stats.spend) }}</div>
+        <div class="stat-value" id="stat-spend">
+            <div class="stat-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+        </div>
     </div>
 
     <div class="stat-card">
         <div class="stat-header">
-            <div class="stat-title">Total Revenue</div>
+            <div class="stat-title">All-Time Revenue</div>
             <div class="stat-icon revenue">
                 <i class="fas fa-chart-line"></i>
             </div>
         </div>
-        <div class="stat-value">${{ "%.2f"|format(stats.revenue) }}</div>
+        <div class="stat-value" id="stat-revenue">
+            <div class="stat-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+        </div>
     </div>
 
     <div class="stat-card">
         <div class="stat-header">
-            <div class="stat-title">ROAS</div>
+            <div class="stat-title">All-Time ROAS</div>
             <div class="stat-icon roas">
                 <i class="fas fa-percentage"></i>
             </div>
         </div>
-        <div class="stat-value">{{ "%.1f"|format(stats.roas) }}%</div>
+        <div class="stat-value" id="stat-roas">
+            <div class="stat-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+        </div>
     </div>
 
     <div class="stat-card">
@@ -391,44 +558,40 @@
                 <i class="fas fa-play"></i>
             </div>
         </div>
-        <div class="stat-value">{{ stats.active }}</div>
+        <div class="stat-value" id="stat-active">
+            <div class="stat-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+        </div>
     </div>
 </div>
 
 <!-- Dashboard Content Layout -->
 <div class="dashboard-content">
-    <!-- Chart Section (3/4 width) -->
-    <div class="chart-section">
-        <div class="chart-container">
-            <h3 class="chart-title">Revenue & Spend - Last 7 Days</h3>
-            <canvas id="revenueSpendChart"></canvas>
-        </div>
-    </div>
+    <!-- Recent Activity Section (Full Width) -->
+    <div class="activity-section">
+        <h3 class="section-title">
+            <i class="fas fa-history"></i>
+            Recent Activity
+        </h3>
 
-    <!-- Notifications Section (1/4 width) -->
-    <div class="notifications-section">
-        <div class="notifications-container">
-            <h3 class="notifications-title">Recent Activity</h3>
-            <div class="notification-item">
-                <div class="notification-icon">
-                    <i class="fas fa-chart-line"></i>
-                </div>
-                <div class="notification-content">
-                    <div class="notification-text">Dashboard loaded with all-time stats</div>
-                    <div class="notification-time">Just now</div>
-                </div>
+        <div class="recent-activity" id="recentActivities">
+            <!-- Activities will be loaded dynamically -->
+            <div class="activity-loading">
+                <div class="loading-spinner" style="width: 30px; height: 30px; margin: 20px auto;"></div>
+                <p style="text-align: center; color: #64748b;">Loading activities...</p>
             </div>
-            {% if output %}
-            <div class="notification-item">
-                <div class="notification-icon">
-                    <i class="fas fa-cog"></i>
-                </div>
-                <div class="notification-content">
-                    <div class="notification-text">{{ output }}</div>
-                    <div class="notification-time">Recent</div>
-                </div>
+        </div>
+
+        <!-- No Activities Message (hidden by default) -->
+        <div id="noActivitiesMessage" class="no-activities" style="display: none;">
+            <div class="no-activities-content">
+                <i class="fas fa-history" style="font-size: 48px; color: #cbd5e1; margin-bottom: 16px;"></i>
+                <h3 style="color: #64748b; margin-bottom: 8px;">No Recent Activity</h3>
+                <p style="color: #94a3b8; font-size: 14px; margin-bottom: 20px;">
+                    Activities will appear here when you perform rule-related actions.
+                </p>
             </div>
-            {% endif %}
         </div>
     </div>
 </div>
@@ -438,193 +601,287 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 <script>
-    // Chart data from backend
-    const chartData = {{ chart_data | tojson }};
+    // Global variables for caching
+    let cachedData = null;
+    let lastRefreshTime = null;
 
-    // Initialize Revenue & Spend Chart
-    let revenueSpendChart;
-
-    function initializeChart(chartData) {
-        const ctx = document.getElementById('revenueSpendChart').getContext('2d');
-
-        // Destroy existing chart if it exists
-        if (revenueSpendChart) {
-            revenueSpendChart.destroy();
+    // Refresh all data function
+    function refreshAllData(force = false) {
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            refreshBtn.disabled = true;
         }
 
-        revenueSpendChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: chartData.dates,
-                datasets: [{
-                    label: 'Revenue',
-                    data: chartData.revenue,
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
-                    pointBackgroundColor: '#10b981',
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 6,
-                    pointHoverRadius: 8
-                }, {
-                    label: 'Spend',
-                    data: chartData.spend,
-                    borderColor: '#ef4444',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
-                    pointBackgroundColor: '#ef4444',
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 6,
-                    pointHoverRadius: 8
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: {
-                            usePointStyle: true,
-                            padding: 20,
-                            font: {
-                                size: 14,
-                                weight: '600'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        borderColor: '#e2e8f0',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: true,
-                        callbacks: {
-                            label: function(context) {
-                                return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
-                            }
-                        }
+        const endpoint = force ? '/dashboard/api/refresh-all' : '/dashboard/api/get-all-data';
+        const method = force ? 'POST' : 'GET';
+
+        fetch(endpoint, { method: method })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.data) {
+                        cachedData = data.data;
+                        lastRefreshTime = data.data.last_refresh;
+                        updateDashboardWithData(cachedData);
+                        console.log('✅ Dashboard data refreshed successfully');
+                    } else if (force) {
+                        // Force refresh completed, reload page to show new data
+                        window.location.reload();
                     }
-                },
-                scales: {
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            font: {
-                                size: 12,
-                                weight: '500'
-                            },
-                            color: '#6b7280'
-                        }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: '#f3f4f6',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            font: {
-                                size: 12,
-                                weight: '500'
-                            },
-                            color: '#6b7280',
-                            callback: function(value) {
-                                return '$' + value.toFixed(0);
-                            }
-                        }
-                    }
-                },
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                elements: {
-                    point: {
-                        hoverBackgroundColor: '#ffffff'
-                    }
+                } else {
+                    console.error('Failed to refresh data:', data.error);
                 }
+            })
+            .catch(error => {
+                console.error('Error refreshing data:', error);
+            })
+            .finally(() => {
+                if (refreshBtn) {
+                    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Data';
+                    refreshBtn.disabled = false;
+                }
+            });
+    }
+    // Update dashboard with cached data
+    function updateDashboardWithData(data) {
+        // Update stats cards
+        const statCards = document.querySelectorAll('.stat-value');
+        if (statCards.length >= 4 && data.dashboard_stats) {
+            const stats = data.dashboard_stats;
+            if (statCards[0]) statCards[0].textContent = data.campaigns?.length || 0;
+            if (statCards[1]) statCards[1].textContent = `$${stats.total_spend || 0}`;
+            if (statCards[2]) statCards[2].textContent = `$${stats.total_revenue || 0}`;
+            if (statCards[3]) statCards[3].textContent = `$${stats.total_profit || 0}`;
+            if (statCards[4]) statCards[4].textContent = `${stats.avg_roas || 0}x`;
+        }
+
+        // Update last refresh time display
+        if (data.last_refresh) {
+            const refreshTime = new Date(data.last_refresh).toLocaleTimeString();
+            console.log(`📊 Data last refreshed at: ${refreshTime}`);
+        }
+    }
+
+
+
+    // Update dashboard with cached data
+    function updateDashboardWithData(data) {
+        // Update stats cards
+        const statCards = document.querySelectorAll('.stat-value');
+        if (statCards.length >= 4 && data.dashboard_stats) {
+            const stats = data.dashboard_stats;
+            if (statCards[0]) statCards[0].textContent = data.campaigns?.length || 0;
+            if (statCards[1]) statCards[1].textContent = `$${stats.total_spend || 0}`;
+            if (statCards[2]) statCards[2].textContent = `$${stats.total_revenue || 0}`;
+            if (statCards[3]) statCards[3].textContent = `$${stats.total_profit || 0}`;
+            if (statCards[4]) statCards[4].textContent = `${stats.avg_roas || 0}x`;
+        }
+
+        // Update last refresh time display
+        if (data.last_refresh) {
+            const refreshTime = new Date(data.last_refresh).toLocaleTimeString();
+            console.log(`📊 Data last refreshed at: ${refreshTime}`);
+        }
+    }
+
+    // Refresh data function
+    function refreshData() {
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            refreshBtn.disabled = true;
+        }
+
+        // Show loading spinners on stat cards
+        showLoadingOnStats();
+
+        // Make API call to refresh all data
+        fetch('/dashboard/api/refresh-all', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    updateDashboardStats(data.data);
+                    console.log('✅ Dashboard data refreshed successfully');
+                } else {
+                    console.error('Failed to refresh data:', data.error);
+                    showErrorStats();
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing data:', error);
+                showErrorStats();
+            })
+            .finally(() => {
+                if (refreshBtn) {
+                    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Data';
+                    refreshBtn.disabled = false;
+                }
+            });
+
+        // Refresh activities
+        loadRecentActivities();
+    }
+
+    // Show loading spinners on stat cards
+    function showLoadingOnStats() {
+        const statCards = ['stat-campaigns', 'stat-spend', 'stat-revenue', 'stat-roas', 'stat-active'];
+        statCards.forEach(cardId => {
+            const card = document.getElementById(cardId);
+            if (card) {
+                card.innerHTML = '<div class="stat-loading"><i class="fas fa-spinner fa-spin"></i></div>';
+                card.classList.remove('loaded');
             }
         });
     }
 
-    function updateChartWithNewData() {
-        // Check for updated chart data
-        fetch('/dashboard/api/chart-data')
+
+
+    // Load recent activities
+    function loadRecentActivities() {
+        fetch('/dashboard/api/activities')
             .then(response => response.json())
             .then(data => {
-                if (data.success && data.chart_data) {
-                    // Check if data has actually changed
-                    const currentData = JSON.stringify(chartData);
-                    const newData = JSON.stringify(data.chart_data);
+                const activitiesContainer = document.getElementById('recentActivities');
+                const noActivitiesMessage = document.getElementById('noActivitiesMessage');
 
-                    if (currentData !== newData) {
-                        console.log('📊 Chart data updated - refreshing chart instantly');
-                        chartData = data.chart_data;
-                        initializeChart(data.chart_data);
-                    }
+                if (data.success && data.activities && data.activities.length > 0) {
+                    // Show activities
+                    activitiesContainer.innerHTML = '';
+                    noActivitiesMessage.style.display = 'none';
+
+                    data.activities.forEach(activity => {
+                        const activityHtml = `
+                            <div class="activity-item">
+                                <div class="activity-icon ${activity.icon}">
+                                    <i class="fas fa-${getIconClass(activity.icon)}"></i>
+                                </div>
+                                <div class="activity-content">
+                                    <div class="activity-title">${activity.title}</div>
+                                    <div class="activity-description">${activity.description}</div>
+                                    <div class="activity-meta">
+                                        <span class="activity-time">${activity.time_ago}</span>
+                                        <span class="activity-badge ${activity.badge}">${getBadgeText(activity.badge)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        activitiesContainer.innerHTML += activityHtml;
+                    });
+                } else {
+                    // Show no activities message
+                    activitiesContainer.style.display = 'none';
+                    noActivitiesMessage.style.display = 'block';
                 }
             })
             .catch(error => {
-                console.log('Chart update check failed:', error);
+                console.error('Error loading activities:', error);
+                const activitiesContainer = document.getElementById('recentActivities');
+                activitiesContainer.innerHTML = '<p style="text-align: center; color: #ef4444;">Failed to load activities</p>';
             });
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialize chart with initial data
-        initializeChart(chartData);
+    // Helper function to get icon class
+    function getIconClass(iconType) {
+        const iconMap = {
+            'system': 'cog',
+            'rule': 'cogs',
+            'campaign': 'bullhorn',
+            'play': 'play',
+            'pause': 'pause'
+        };
+        return iconMap[iconType] || 'info-circle';
+    }
 
-        // Check for updated chart data after 3 seconds (first check)
-        setTimeout(updateChartWithNewData, 3000);
+    // Helper function to get badge text
+    function getBadgeText(badgeType) {
+        const badgeMap = {
+            'success': 'Success',
+            'warning': 'Warning',
+            'info': 'Info',
+            'error': 'Error'
+        };
+        return badgeMap[badgeType] || 'Info';
+    }
 
-        // Check for updated chart data every 10 seconds (for real-time today's data)
-        setInterval(updateChartWithNewData, 10000);
+    // Load fresh dashboard data
+    function loadFreshDashboardData() {
+        console.log('🔄 Loading fresh dashboard data...');
 
-        // Check if campaigns need to be loaded
-        checkAndLoadCampaigns();
-    });
+        // Make API call to refresh all data
+        fetch('/dashboard/api/refresh-all', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    updateDashboardStats(data.data);
+                    console.log('✅ Fresh dashboard data loaded');
+                } else {
+                    console.error('Failed to load fresh data:', data.error);
+                    showErrorStats();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading fresh data:', error);
+                showErrorStats();
+            });
+    }
 
-    // Check if campaigns need to be loaded
-    function checkAndLoadCampaigns() {
-        // Check if dashboard has zero values (indicating no campaigns loaded)
-        const statCards = document.querySelectorAll('.stat-value');
-        if (statCards.length >= 4) {
-            const campaignsCount = parseInt(statCards[0].textContent || '0');
-            const spendValue = parseFloat(statCards[1].textContent?.replace('$', '') || '0');
-            const revenueValue = parseFloat(statCards[2].textContent?.replace('$', '') || '0');
+    // Update dashboard stats with real data
+    function updateDashboardStats(data) {
+        const campaigns = data.campaigns || [];
+        const stats = data.dashboard_stats || {};
 
-            // If all main stats are zero, try to load campaigns
-            if (campaignsCount === 0 && spendValue === 0 && revenueValue === 0) {
-                console.log('Dashboard shows zero values, attempting to load campaigns...');
+        // Update stat cards with real values
+        updateStatCard('stat-campaigns', campaigns.length);
+        updateStatCard('stat-spend', `$${(stats.total_spend || 0).toFixed(2)}`);
+        updateStatCard('stat-revenue', `$${(stats.total_revenue || 0).toFixed(2)}`);
+        updateStatCard('stat-roas', `${(stats.avg_roas || 0).toFixed(1)}%`);
+        updateStatCard('stat-active', stats.active_campaigns || 0);
+    }
 
-                fetch('/dashboard/api/campaigns')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success && data.campaigns && data.campaigns.length > 0) {
-                            console.log('Campaigns loaded successfully, refreshing dashboard...');
-                            // Refresh the page to show updated data
-                            window.location.reload();
-                        }
-                    })
-                    .catch(error => {
-                        console.log('Could not auto-load campaigns:', error);
-                    });
-            }
+    // Update individual stat card
+    function updateStatCard(cardId, value) {
+        const card = document.getElementById(cardId);
+        if (card) {
+            // Hide loading spinner and show value
+            card.innerHTML = value;
+            card.classList.add('loaded');
+
+            // Add a nice animation
+            card.style.opacity = '0';
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transition = 'opacity 0.3s ease';
+            }, 100);
         }
     }
+
+    // Show error state for stats
+    function showErrorStats() {
+        updateStatCard('stat-campaigns', '0');
+        updateStatCard('stat-spend', '$0.00');
+        updateStatCard('stat-revenue', '$0.00');
+        updateStatCard('stat-roas', '0.0%');
+        updateStatCard('stat-active', '0');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🎯 Dashboard loaded - loading fresh data...');
+
+        // Set up refresh button
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', refreshData);
+        }
+
+        // Load fresh data on first load
+        loadFreshDashboardData();
+
+        // Load recent activities
+        loadRecentActivities();
+
+        console.log('📊 Dashboard ready - Loading fresh data and activities');
+    });
 </script>
 {% endblock %}

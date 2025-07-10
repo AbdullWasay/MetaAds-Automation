@@ -2,7 +2,14 @@
 
 {% block title %}Campaigns - Meta Ads Automation{% endblock %}
 {% block page_title %}Campaigns{% endblock %}
-{% block page_subtitle %}Manage your Meta advertising campaigns and automation rules{% endblock %}
+{% block page_subtitle %}
+    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+        <span>Manage your Meta advertising campaigns and automation rules</span>
+        <button id="refreshBtn" class="btn btn-primary" style="margin-left: auto;">
+            <i class="fas fa-sync-alt"></i> Refresh Data
+        </button>
+    </div>
+{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -38,24 +45,7 @@
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
 
-    .refresh-button {
-        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-    }
 
-    .refresh-button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-    }
 
     /* Campaign Summary Cards */
     .campaign-summary-cards {
@@ -809,10 +799,7 @@
         </select>
     </div>
 
-    <button class="refresh-button" onclick="refreshCampaigns()">
-        <i class="fas fa-sync-alt"></i>
-        <span>Refresh</span>
-    </button>
+
 </div>
 
 <!-- Campaign Summary Cards -->
@@ -880,26 +867,116 @@
     const CACHE_DURATION = 30000; // 30 seconds cache
 
     // Load campaigns on page load
+    // Global cache for fast loading
+    let globalCachedData = null;
+
     document.addEventListener('DOMContentLoaded', function() {
-        // Clear any cached campaigns to ensure fresh data
-        clearCampaignsCache();
-        loadCampaigns();
-    });
-
-    // Load campaigns with caching
-    function loadCampaigns() {
-        const dateRange = document.getElementById('dateFilter').value;
-        const cacheKey = `campaigns_${dateRange}`;
-        const now = Date.now();
-
-        // Check cache first
-        if (campaignsCache[cacheKey] && (now - lastLoadTime) < CACHE_DURATION) {
-            allCampaigns = campaignsCache[cacheKey];
-            // Apply all filters to cached data
-            applyAllFilters();
-            return;
+        // Set up refresh button
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => refreshAllData(true));
         }
 
+        // Load campaigns using optimized method
+        loadCampaignsOptimized();
+    });
+
+    // Optimized campaigns loading using global cache
+    function loadCampaignsOptimized() {
+        const dateRange = document.getElementById('dateFilter').value;
+
+        // For default range, use cached data
+        if (dateRange === 'last_30_days') {
+            loadFromGlobalCache();
+        } else {
+            // For other date ranges, use old method
+            loadCampaignsOld(dateRange);
+        }
+    }
+
+    // Load from global cached data
+    function loadFromGlobalCache() {
+        showLoading(true);
+
+        fetch('/dashboard/api/get-all-data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    globalCachedData = data.data;
+                    allCampaigns = data.data.campaigns || [];
+
+                    // Update stats display
+                    updateStatsDisplay(data.data);
+
+                    // Apply all filters after loading new data
+                    applyAllFilters();
+
+                    console.log(`✅ Loaded ${allCampaigns.length} campaigns from cache`);
+                } else {
+                    showEmptyState();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading campaigns:', error);
+                showEmptyState();
+            })
+            .finally(() => {
+                showLoading(false);
+            });
+    }
+
+    // Refresh all data function
+    function refreshAllData(force = false) {
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            refreshBtn.disabled = true;
+        }
+
+        const endpoint = force ? '/dashboard/api/refresh-all' : '/dashboard/api/get-all-data';
+        const method = force ? 'POST' : 'GET';
+
+        fetch(endpoint, { method: method })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (force) {
+                        // Force refresh completed, reload campaigns
+                        loadCampaignsOptimized();
+                        console.log('✅ Data force refreshed successfully');
+                    } else if (data.data) {
+                        globalCachedData = data.data;
+                        allCampaigns = data.data.campaigns || [];
+                        updateStatsDisplay(data.data);
+                        applyAllFilters();
+                        console.log('✅ Data refreshed from cache');
+                    }
+                } else {
+                    console.error('Failed to refresh data:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing data:', error);
+            })
+            .finally(() => {
+                if (refreshBtn) {
+                    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Data';
+                    refreshBtn.disabled = false;
+                }
+            });
+    }
+
+    // Update stats display
+    function updateStatsDisplay(data) {
+        // You can add stats display here if needed
+        if (data.last_refresh) {
+            const refreshTime = new Date(data.last_refresh).toLocaleTimeString();
+            console.log(`📊 Campaigns data last refreshed at: ${refreshTime}`);
+        }
+    }
+
+    // Old method for non-default date ranges
+    function loadCampaignsOld(dateRange) {
         showLoading(true);
 
         fetch(`/dashboard/api/campaigns/${dateRange}`)
@@ -907,10 +984,6 @@
             .then(data => {
                 if (data.success) {
                     allCampaigns = data.campaigns || [];
-                    // Cache the results
-                    campaignsCache[cacheKey] = allCampaigns;
-                    lastLoadTime = now;
-                    // Apply all filters after loading new data
                     applyAllFilters();
                 } else {
                     showEmptyState();
@@ -923,6 +996,11 @@
             .finally(() => {
                 showLoading(false);
             });
+    }
+
+    // Load campaigns with caching (keep for backward compatibility)
+    function loadCampaigns() {
+        loadCampaignsOptimized();
     }
 
     // Load accounts and campaigns
