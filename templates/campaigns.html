@@ -3,12 +3,7 @@
 {% block title %}Campaigns - Meta Ads Automation{% endblock %}
 {% block page_title %}Campaigns{% endblock %}
 {% block page_subtitle %}
-    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-        <span>Manage your Meta advertising campaigns and automation rules</span>
-        <button id="refreshBtn" class="btn btn-primary" style="margin-left: auto;">
-            <i class="fas fa-sync-alt"></i> Refresh Data
-        </button>
-    </div>
+    <span>Manage your Meta advertising campaigns and automation rules</span>
 {% endblock %}
 
 {% block extra_css %}
@@ -388,6 +383,39 @@
         display: flex;
         align-items: center;
         gap: 12px;
+    }
+
+    /* Campaign Stats */
+    .campaign-stats {
+        display: flex;
+        gap: 20px;
+        padding: 8px 16px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+    }
+
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .stat-number {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .stat-label {
+        font-size: 11px;
+        font-weight: 500;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 2px;
     }
 
     .refresh-btn {
@@ -897,6 +925,16 @@
     </div>
 
     <div class="header-actions">
+        <div class="campaign-stats" id="campaignStats">
+            <div class="stat-item">
+                <span class="stat-number" id="totalCampaigns">0</span>
+                <span class="stat-label">Total Campaigns</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="activeCampaigns">0</span>
+                <span class="stat-label">Active Campaigns</span>
+            </div>
+        </div>
         <div class="automation-status" id="automationStatus">
             <span class="status-indicator"></span>
             <span>Checking automation...</span>
@@ -990,11 +1028,40 @@
         // Load campaigns using optimized method
         loadCampaignsOptimized();
 
-        // Start auto-refresh every 10 seconds with filter preservation
+        // Start auto-refresh every 30 seconds with filter preservation
+        console.log('🚀 Initializing auto-refresh system...');
         startAutoRefresh();
 
         // Initial automation status check
         updateAutomationStatus();
+
+        // Force first auto-refresh after 2 seconds to test
+        setTimeout(() => {
+            console.log('🔄 Testing auto-refresh...');
+            autoRefreshWithFilters();
+        }, 2000);
+
+        // Start instant rule checking every 10 seconds for missed triggers
+        setInterval(() => {
+            console.log('⚡ Periodic instant rule check...');
+            fetch('/dashboard/api/campaigns/instant-rule-check', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('⚡ Periodic rule check completed');
+                    // Check for any changes after rule check
+                    setTimeout(() => autoRefreshWithFilters(), 1000);
+                }
+            })
+            .catch(error => {
+                console.error('⚡ Periodic rule check error:', error);
+            });
+        }, 10000); // Every 10 seconds
     });
 
     // Start automatic refresh every 10 seconds maximum for real-time updates
@@ -1007,9 +1074,9 @@
             console.log('🔄 Auto-refreshing campaigns data...');
             showAutoRefreshIndicator();
             autoRefreshWithFilters();
-        }, 10000); // 10 seconds maximum as requested
+        }, 30000); // 30 seconds as requested
 
-        console.log('✅ Auto-refresh started (every 10 seconds)');
+        console.log('✅ Auto-refresh started (every 30 seconds)');
 
         // Also update automation status
         updateAutomationStatus();
@@ -1053,7 +1120,7 @@
             });
     }
 
-    // Auto-refresh with filter preservation - updates values automatically every 10 seconds
+    // Auto-refresh with filter preservation - updates values automatically every 30 seconds
     function autoRefreshWithFilters() {
         // Store current filter values
         const currentFilters = {
@@ -1072,8 +1139,14 @@
                     const newCampaigns = data.campaigns || [];
                     console.log(`📊 Received ${newCampaigns.length} campaigns from API`);
 
+                    // Update global campaigns data
+                    allCampaigns = newCampaigns;
+
                     // Update campaign values in the table
                     updateCampaignValues(newCampaigns);
+
+                    // Update campaign stats
+                    updateCampaignStats(newCampaigns);
 
                     // Restore filter values after update
                     document.getElementById('statusFilter').value = currentFilters.status;
@@ -1216,6 +1289,17 @@
         console.log('✅ Campaign values updated successfully');
     }
 
+    // Update campaign stats in header
+    function updateCampaignStats(campaigns) {
+        const totalCampaigns = campaigns.length;
+        const activeCampaigns = campaigns.filter(camp => camp.status === 'ACTIVE').length;
+
+        document.getElementById('totalCampaigns').textContent = totalCampaigns;
+        document.getElementById('activeCampaigns').textContent = activeCampaigns;
+
+        console.log(`📊 Stats updated: ${totalCampaigns} total, ${activeCampaigns} active`);
+    }
+
     // Optimized campaigns loading using global cache
     function loadCampaignsOptimized() {
         const dateRange = document.getElementById('dateFilter').value;
@@ -1239,6 +1323,9 @@
                 if (data.success && data.data) {
                     globalCachedData = data.data;
                     allCampaigns = data.data.campaigns || [];
+
+                    // Update campaign stats
+                    updateCampaignStats(allCampaigns);
 
                     // Update stats display
                     updateStatsDisplay(data.data);
@@ -1373,6 +1460,14 @@
         campaignsCache = {};
         lastLoadTime = 0;
         loadCampaigns();
+
+        // Also update stats immediately
+        setTimeout(() => {
+            if (allCampaigns && allCampaigns.length > 0) {
+                updateCampaignStats(allCampaigns);
+                console.log('📊 Stats updated after manual refresh');
+            }
+        }, 1000);
     }
 
     // Clear campaigns cache
@@ -1662,14 +1757,43 @@
                         // Clear cache since campaign status changed
                         clearCampaignsCache();
                         filterCampaigns(); // Re-render with current filters
+
+                        // INSTANT UPDATE: Update campaign stats immediately
+                        updateCampaignStats(allCampaigns);
+                        console.log(`📊 INSTANT STATS UPDATE: Campaign ${campaignId} status changed to ${newStatus}`);
                     }
 
-                    // INSTANT RULE CHECK: Trigger immediate refresh to catch rule actions
+                    // INSTANT RULE CHECK: Trigger immediate rule check and refresh
                     console.log(`⚡ INSTANT CHECK: Campaign ${campaignId} status changed to ${newStatus}`);
+
+                    // Trigger instant rule check for all campaigns
+                    fetch('/dashboard/api/campaigns/instant-rule-check', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log('⚡ Instant rule check triggered');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('⚡ Instant rule check error:', error);
+                    });
+
+                    // Check for rule actions after a very short delay
                     setTimeout(() => {
                         console.log('⚡ Checking for instant rule actions...');
                         autoRefreshWithFilters(); // Check for rule actions immediately
-                    }, 1000); // Wait 1 second for backend rule processing
+                    }, 500); // Wait only 0.5 seconds for backend rule processing
+
+                    // Check again after 2 seconds to catch any delayed actions
+                    setTimeout(() => {
+                        console.log('⚡ Second check for rule actions...');
+                        autoRefreshWithFilters();
+                    }, 2000);
 
                 } else {
                     // Revert toggle state on error

@@ -322,7 +322,7 @@
         <!-- Sidebar -->
         <nav class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <a href="{{ url_for('dashboard') }}" class="logo">
+                <a href="{{ url_for('campaigns') }}" class="logo">
                     <i class="fas fa-chart-line"></i>
                     <span>Meta Automation</span>
                 </a>
@@ -331,10 +331,6 @@
             <div class="sidebar-nav">
                 <div class="nav-section">
                     <div class="nav-section-title">Main</div>
-                    <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
-                        <i class="fas fa-home"></i>
-                        Dashboard
-                    </a>
                     <a href="{{ url_for('campaigns') }}" class="nav-item {% if request.endpoint == 'campaigns' %}active{% endif %}">
                         <i class="fas fa-bullhorn"></i>
                         Campaigns

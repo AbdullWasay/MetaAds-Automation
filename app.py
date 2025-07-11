@@ -1028,8 +1028,8 @@ class AutomationEngine:
                     if result["actions"] > 0:
                         print(f"🎯 User {self.username}: {result['actions']} actions taken")
                     
-                    # Sleep for 2 seconds between checks for INSTANT responsiveness
-                    time.sleep(2)
+                    # Sleep for 1 second between checks for INSTANT responsiveness
+                    time.sleep(1)
                     
                 except Exception as e:
                     print(f"❌ Automation loop error for {self.username}: {str(e)}")
@@ -1429,7 +1429,8 @@ def toggle_campaign_status(campaign_id, new_status, triggered_by_rule=False, rul
             # INSTANT RULE CHECK: Check rules immediately after status change
             if not triggered_by_rule:  # Only check if this wasn't already triggered by a rule
                 print(f"🚀 INSTANT RULE CHECK: Campaign {campaign_name} status changed to {new_status}")
-                instant_rule_check_for_campaign(username, campaign_id)
+                # Run instant rule check in a separate thread for immediate response
+                threading.Thread(target=instant_rule_check_for_campaign, args=(username, campaign_id), daemon=True).start()
 
             # Log activity
             if triggered_by_rule and rule_name:
@@ -1499,7 +1500,7 @@ def instant_rule_check_for_campaign(username, campaign_id):
         print(f"⚡ Found campaign: {target_campaign['name']} - Status: {target_campaign['status']}")
 
         # Get assigned rules for this campaign
-        assigned_rule_ids = get_assigned_rules_for_campaign(username, campaign_id)
+        assigned_rule_ids = get_campaign_rules_db(username, campaign_id)
         if not assigned_rule_ids:
             print(f"⚡ No rules assigned to campaign {campaign_id}")
             return
@@ -1519,14 +1520,16 @@ def instant_rule_check_for_campaign(username, campaign_id):
             fresh_campaign_data = engine.get_campaign_data_with_dynamic_payout(campaign_id, rule["payout"])
 
             if fresh_campaign_data:
-                # Evaluate rule instantly
-                evaluation = engine.evaluate_chained_rule(rule, fresh_campaign_data)
+                # Evaluate rule instantly with correct parameters
+                evaluation = engine.evaluate_chained_rule(rule, fresh_campaign_data, campaign_id, target_campaign)
 
                 print(f"⚡ Rule evaluation result: {evaluation['action']} - {evaluation['reason']}")
 
                 if evaluation["action"] in ["kill", "reactivate"]:
-                    # Execute action INSTANTLY
-                    if evaluation["action"] == "kill" and fresh_campaign_data["status"] == "ACTIVE":
+                    # Execute action INSTANTLY - use original campaign data for status
+                    campaign_status = target_campaign.get("status", "UNKNOWN")
+
+                    if evaluation["action"] == "kill" and campaign_status == "ACTIVE":
                         print(f"🔴 INSTANT KILL: Pausing campaign {target_campaign['name']}")
                         result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule["name"])
                         if result["success"]:
@@ -1534,7 +1537,7 @@ def instant_rule_check_for_campaign(username, campaign_id):
                         else:
                             print(f"❌ Failed to pause campaign: {result.get('error')}")
 
-                    elif evaluation["action"] == "reactivate" and fresh_campaign_data["status"] == "PAUSED":
+                    elif evaluation["action"] == "reactivate" and campaign_status == "PAUSED":
                         print(f"🟢 INSTANT REACTIVATE: Activating campaign {target_campaign['name']}")
                         result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule["name"])
                         if result["success"]:
@@ -1856,6 +1859,97 @@ def get_live_campaign_status():
             "error": str(e)
         })
 
+@app.route('/dashboard/api/campaigns/instant-rule-check', methods=['POST'])
+@login_required
+def instant_rule_check_api():
+    """Trigger instant rule check for all campaigns"""
+    try:
+        username = session.get('username')
+
+        # Run instant rule check for all campaigns
+        threading.Thread(target=instant_rule_check_all_campaigns, args=(username,), daemon=True).start()
+
+        return jsonify({
+            "success": True,
+            "message": "Instant rule check triggered"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+def instant_rule_check_all_campaigns(username):
+    """Perform INSTANT rule check for ALL campaigns"""
+    try:
+        print(f"⚡ INSTANT RULE CHECK: Checking ALL campaigns for {username}")
+
+        # Get user data and rules
+        user_data = get_user_data(username)
+        campaigns = user_data.get("campaigns", [])
+        rules = load_rules_from_db(username)
+
+        if not rules or not campaigns:
+            print(f"⚡ No rules or campaigns found for {username}")
+            return
+
+        print(f"⚡ Checking {len(campaigns)} campaigns against {len(rules)} rules")
+
+        # Check all campaigns to avoid status field issues - let rule evaluation handle status checking
+        print(f"⚡ Checking all {len(campaigns)} campaigns for instant rule evaluation")
+
+        # Check each campaign against all assigned rules INSTANTLY
+        for campaign in campaigns:
+            campaign_id = campaign["id"]
+
+            # Get assigned rules for this campaign
+            assigned_rule_ids = get_campaign_rules_db(username, campaign_id)
+            if not assigned_rule_ids:
+                continue
+
+            print(f"⚡ Checking campaign: {campaign['name']} ({len(assigned_rule_ids)} rules)")
+
+            # Check each assigned rule INSTANTLY
+            for rule_id in assigned_rule_ids:
+                rule = next((r for r in rules if r["id"] == rule_id), None)
+                if not rule or not rule.get("active", True):
+                    continue
+
+                # Create automation engine and get fresh campaign data
+                engine = AutomationEngine(username)
+                fresh_campaign_data = engine.get_campaign_data_with_dynamic_payout(campaign_id, rule["payout"])
+
+                if fresh_campaign_data:
+                    # Evaluate rule instantly with correct parameters
+                    evaluation = engine.evaluate_chained_rule(rule, fresh_campaign_data, campaign_id, campaign)
+
+                    print(f"⚡ Rule '{rule['name']}' evaluation: {evaluation['action']} - {evaluation['reason']}")
+
+                    if evaluation["action"] in ["kill", "reactivate"]:
+                        # Execute action INSTANTLY - use original campaign data for status
+                        campaign_status = campaign.get("status", "UNKNOWN")
+
+                        if evaluation["action"] == "kill" and campaign_status == "ACTIVE":
+                            print(f"🔴 INSTANT KILL: Pausing campaign {campaign['name']}")
+                            result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule["name"])
+                            if result["success"]:
+                                print(f"✅ Campaign {campaign['name']} INSTANTLY paused by rule {rule['name']}")
+
+                        elif evaluation["action"] == "reactivate" and campaign_status == "PAUSED":
+                            print(f"🟢 INSTANT REACTIVATE: Activating campaign {campaign['name']}")
+                            result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule["name"])
+                            if result["success"]:
+                                print(f"✅ Campaign {campaign['name']} INSTANTLY reactivated by rule {rule['name']}")
+
+                        # Stop checking other rules for this campaign since action was taken
+                        break
+
+    except Exception as e:
+        print(f"❌ Instant rule check error for all campaigns: {e}")
+        import traceback
+        print(f"❌ Full error traceback: {traceback.format_exc()}")
+
 # ===============================
 # OPTIMIZED API ROUTES WITH CACHING
 # ===============================
@@ -2027,65 +2121,9 @@ def get_recent_activities_api():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Dashboard page with loading states - loads fresh data on first visit"""
-    username = session.get('username', 'anonymous')
+    """Redirect dashboard to campaigns page"""
+    return redirect(url_for('campaigns'))
 
-    try:
-        user_data = get_user_data(username)
-
-        # Auto-start automation if user has active rule assignments (lightweight check)
-        try:
-            if has_active_rule_assignments(username):
-                start_user_automation(username)
-        except Exception as e:
-            print(f"⚠️ Could not check automation status: {e}")
-
-        # Check if this is first visit after login
-        first_visit = session.pop('first_dashboard_visit', False)
-
-        if first_visit:
-            print(f"🎯 First dashboard visit for {username} - will load fresh data")
-
-        # Always start with loading states - JavaScript will load fresh data
-        template_data = {
-            'username': username,
-            'campaigns': [],  # Empty initially, will be loaded via API
-            'stats': {
-                'campaigns': 0,
-                'active': 0,
-                'matched': 0,
-                'spend': 0,
-                'revenue': 0,
-                'roas': 0
-            },
-            'matched_count': 0,
-            'output': user_data.get('output', ''),
-            'chart_data': [],
-            'first_load': first_visit  # Flag to indicate this is first load
-        }
-
-        return render_template('dashboard.html', **template_data)
-
-    except Exception as e:
-        print(f"❌ Dashboard error: {e}")
-        # Return minimal dashboard on error
-        template_data = {
-            'username': username,
-            'campaigns': [],
-            'stats': {
-                'campaigns': 0,
-                'active': 0,
-                'matched': 0,
-                'spend': 0,
-                'revenue': 0,
-                'roas': 0
-            },
-            'matched_count': 0,
-            'output': '',
-            'chart_data': [],
-            'first_load': True
-        }
-        return render_template('dashboard.html', **template_data)
 
 @app.route('/campaigns')
 @login_required
