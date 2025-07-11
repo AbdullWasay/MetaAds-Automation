@@ -7,7 +7,8 @@ import threading
 import time
 import os
 import pickle
-import sqlite3
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, DuplicateKeyError
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -16,254 +17,246 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-to-something-secure')
 
 # ===============================
-# PERSISTENTE DATENBANK (SQLite)
+# MONGODB CONFIGURATION
 # ===============================
 
-def init_database():
-    """Initialize SQLite database for persistent storage"""
-    conn = sqlite3.connect('neural_dashboard.db')
-    cursor = conn.cursor()
-    
-    # User Rules Table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS rules (
-            id TEXT PRIMARY KEY,
-            username TEXT NOT NULL,
-            name TEXT NOT NULL,
-            payout REAL NOT NULL,
-            kill_on_no_conversion_spend REAL NOT NULL,
-            kill_on_one_conversion_spend REAL NOT NULL,
-            profit_buffer REAL NOT NULL,
-            max_cpa_allowed REAL NOT NULL,
-            reactivate_if_cpa_below REAL NOT NULL,
-            check_interval_minutes INTEGER NOT NULL,
-            reactivate_if_profitable BOOLEAN NOT NULL,
-            created_at TEXT NOT NULL,
-            active BOOLEAN NOT NULL DEFAULT 1
-        )
-    ''')
-    
-    # Campaign Rule Assignments Table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS campaign_rules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            campaign_id TEXT NOT NULL,
-            rule_id TEXT NOT NULL,
-            assigned_at TEXT NOT NULL,
-            UNIQUE(username, campaign_id, rule_id)
-        )
-    ''')
-    
-    # Campaign Status Table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS campaign_status (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            campaign_id TEXT NOT NULL,
-            current_status TEXT NOT NULL,
-            last_action TEXT NOT NULL,
-            last_check TEXT,
-            updated_at TEXT NOT NULL,
-            UNIQUE(username, campaign_id)
-        )
-    ''')
-    
-    # Automation Status Table (NEU)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS automation_status (
-            username TEXT PRIMARY KEY,
-            is_running BOOLEAN NOT NULL DEFAULT 0,
-            started_at TEXT,
-            last_check TEXT,
-            last_action_count INTEGER DEFAULT 0
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print("✅ Datenbank initialisiert!")
+# MongoDB connection string
+MONGODB_URI = "mongodb+srv://wasay:mongodb308@cluster0.etvipre.mongodb.net/MetaAds"
 
-# Initialize database on startup
-init_database()
+# Initialize MongoDB client
+try:
+    mongo_client = MongoClient(MONGODB_URI)
+    # Test the connection
+    mongo_client.admin.command('ping')
+    print("✅ MongoDB connection successful!")
 
-def get_db_connection():
-    """Get database connection"""
-    conn = sqlite3.connect('neural_dashboard.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Get database
+    db = mongo_client.MetaAds
+
+    # Collections
+    rules_collection = db.rules
+    campaign_rules_collection = db.campaign_rules
+    campaign_status_collection = db.campaign_status
+    automation_status_collection = db.automation_status
+
+except ConnectionFailure as e:
+    print(f"❌ MongoDB connection failed: {e}")
+    raise
+
+# ===============================
+# MONGODB COLLECTIONS SETUP
+# ===============================
+
+def init_mongodb():
+    """Initialize MongoDB collections and indexes"""
+    try:
+        # Create indexes for better performance
+
+        # Rules collection indexes
+        rules_collection.create_index([("username", 1), ("active", 1)])
+        rules_collection.create_index("id", unique=True)
+
+        # Campaign rules collection indexes
+        campaign_rules_collection.create_index([("username", 1), ("campaign_id", 1), ("rule_id", 1)], unique=True)
+        campaign_rules_collection.create_index([("username", 1)])
+
+        # Campaign status collection indexes
+        campaign_status_collection.create_index([("username", 1), ("campaign_id", 1)], unique=True)
+        campaign_status_collection.create_index([("username", 1)])
+
+        # Automation status collection indexes
+        automation_status_collection.create_index("username", unique=True)
+
+        print("✅ MongoDB collections and indexes initialized!")
+
+    except Exception as e:
+        print(f"⚠️ MongoDB initialization warning: {e}")
+
+# Initialize MongoDB on startup
+init_mongodb()
 
 def save_rule_to_db(username, rule):
-    """Save rule to database"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO rules 
-        (id, username, name, payout, kill_on_no_conversion_spend, 
-         kill_on_one_conversion_spend, profit_buffer, max_cpa_allowed, 
-         reactivate_if_cpa_below, check_interval_minutes, reactivate_if_profitable, 
-         created_at, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        rule['id'], username, rule['name'], rule['payout'],
-        rule['kill_on_no_conversion_spend'], rule['kill_on_one_conversion_spend'],
-        rule['profit_buffer'], rule['max_cpa_allowed'], rule['reactivate_if_cpa_below'],
-        rule['check_interval_minutes'], rule['reactivate_if_profitable'],
-        rule['created_at'], rule['active']
-    ))
-    
-    conn.commit()
-    conn.close()
+    """Save rule to MongoDB"""
+    try:
+        rule_doc = {
+            'id': rule['id'],
+            'username': username,
+            'name': rule['name'],
+            'payout': rule['payout'],
+            'kill_on_no_conversion_spend': rule['kill_on_no_conversion_spend'],
+            'kill_on_one_conversion_spend': rule['kill_on_one_conversion_spend'],
+            'profit_buffer': rule['profit_buffer'],
+            'max_cpa_allowed': rule['max_cpa_allowed'],
+            'reactivate_if_cpa_below': rule['reactivate_if_cpa_below'],
+            'check_interval_minutes': rule['check_interval_minutes'],
+            'reactivate_if_profitable': rule['reactivate_if_profitable'],
+            'created_at': rule['created_at'],
+            'active': rule['active']
+        }
+
+        # Use upsert to replace if exists
+        rules_collection.replace_one(
+            {'id': rule['id']},
+            rule_doc,
+            upsert=True
+        )
+
+    except Exception as e:
+        print(f"Error saving rule to MongoDB: {e}")
+        raise
 
 def load_rules_from_db(username):
-    """Load rules from database"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM rules WHERE username = ? AND active = 1', (username,))
-    rows = cursor.fetchall()
-    
-    rules = []
-    for row in rows:
-        rule = {
-            'id': row['id'],
-            'name': row['name'],
-            'payout': row['payout'],
-            'kill_on_no_conversion_spend': row['kill_on_no_conversion_spend'],
-            'kill_on_one_conversion_spend': row['kill_on_one_conversion_spend'],
-            'profit_buffer': row['profit_buffer'],
-            'max_cpa_allowed': row['max_cpa_allowed'],
-            'reactivate_if_cpa_below': row['reactivate_if_cpa_below'],
-            'check_interval_minutes': row['check_interval_minutes'],
-            'reactivate_if_profitable': bool(row['reactivate_if_profitable']),
-            'created_at': row['created_at'],
-            'active': bool(row['active'])
-        }
-        rules.append(rule)
-    
-    conn.close()
-    return rules
+    """Load rules from MongoDB"""
+    try:
+        # Load all rules for the user (no active filter since deleted rules are completely removed)
+        cursor = rules_collection.find({
+            'username': username
+        })
+
+        rules = []
+        for doc in cursor:
+            rule = {
+                'id': doc['id'],
+                'name': doc['name'],
+                'payout': doc['payout'],
+                'kill_on_no_conversion_spend': doc['kill_on_no_conversion_spend'],
+                'kill_on_one_conversion_spend': doc['kill_on_one_conversion_spend'],
+                'profit_buffer': doc['profit_buffer'],
+                'max_cpa_allowed': doc['max_cpa_allowed'],
+                'reactivate_if_cpa_below': doc['reactivate_if_cpa_below'],
+                'check_interval_minutes': doc['check_interval_minutes'],
+                'reactivate_if_profitable': doc['reactivate_if_profitable'],
+                'created_at': doc['created_at'],
+                'active': doc.get('active', True)  # Default to True for backward compatibility
+            }
+            rules.append(rule)
+
+        return rules
+
+    except Exception as e:
+        print(f"Error loading rules from MongoDB: {e}")
+        return []
 
 def assign_rule_to_campaign_db(username, campaign_id, rule_id):
-    """Assign rule to campaign in database"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    """Assign rule to campaign in MongoDB"""
     try:
-        cursor.execute('''
-            INSERT INTO campaign_rules (username, campaign_id, rule_id, assigned_at)
-            VALUES (?, ?, ?, ?)
-        ''', (username, campaign_id, rule_id, datetime.now().isoformat()))
-        
-        conn.commit()
-        conn.close()
+        assignment_doc = {
+            'username': username,
+            'campaign_id': campaign_id,
+            'rule_id': rule_id,
+            'assigned_at': datetime.now().isoformat()
+        }
+
+        campaign_rules_collection.insert_one(assignment_doc)
         return True
-    except sqlite3.IntegrityError:
+
+    except DuplicateKeyError:
         # Rule already assigned
-        conn.close()
+        return False
+    except Exception as e:
+        print(f"Error assigning rule to campaign: {e}")
         return False
 
 def remove_rule_from_campaign_db(username, campaign_id, rule_id):
-    """Remove rule from campaign in database"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        DELETE FROM campaign_rules 
-        WHERE username = ? AND campaign_id = ? AND rule_id = ?
-    ''', (username, campaign_id, rule_id))
-    
-    conn.commit()
-    conn.close()
+    """Remove rule from campaign in MongoDB"""
+    try:
+        campaign_rules_collection.delete_one({
+            'username': username,
+            'campaign_id': campaign_id,
+            'rule_id': rule_id
+        })
+    except Exception as e:
+        print(f"Error removing rule from campaign: {e}")
 
 def get_campaign_rules_db(username, campaign_id):
     """Get rules assigned to campaign"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT rule_id FROM campaign_rules 
-        WHERE username = ? AND campaign_id = ?
-    ''', (username, campaign_id))
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [row['rule_id'] for row in rows]
+    try:
+        cursor = campaign_rules_collection.find({
+            'username': username,
+            'campaign_id': campaign_id
+        })
+
+        return [doc['rule_id'] for doc in cursor]
+
+    except Exception as e:
+        print(f"Error getting campaign rules: {e}")
+        return []
 
 def delete_rule_from_db(username, rule_id):
-    """Delete rule from database"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Mark rule as inactive
-    cursor.execute('''
-        UPDATE rules SET active = 0 WHERE username = ? AND id = ?
-    ''', (username, rule_id))
-    
-    # Remove all campaign assignments
-    cursor.execute('''
-        DELETE FROM campaign_rules WHERE username = ? AND rule_id = ?
-    ''', (username, rule_id))
-    
-    conn.commit()
-    conn.close()
+    """Delete rule completely from MongoDB"""
+    try:
+        # Delete rule completely from database
+        rules_collection.delete_one({
+            'username': username,
+            'id': rule_id
+        })
+
+        # Remove all campaign assignments
+        campaign_rules_collection.delete_many({
+            'username': username,
+            'rule_id': rule_id
+        })
+
+    except Exception as e:
+        print(f"Error deleting rule: {e}")
 
 def has_active_rule_assignments(username):
     """Check if user has any active rule assignments"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM campaign_rules 
-        WHERE username = ?
-    ''', (username,))
-    
-    result = cursor.fetchone()
-    conn.close()
-    
-    return result['count'] > 0
+    try:
+        count = campaign_rules_collection.count_documents({
+            'username': username
+        })
+
+        return count > 0
+
+    except Exception as e:
+        print(f"Error checking rule assignments: {e}")
+        return False
 
 def set_automation_status(username, is_running):
     """Set automation status for user"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if is_running:
-        cursor.execute('''
-            INSERT OR REPLACE INTO automation_status 
-            (username, is_running, started_at, last_check)
-            VALUES (?, 1, ?, ?)
-        ''', (username, datetime.now().isoformat(), datetime.now().isoformat()))
-    else:
-        cursor.execute('''
-            UPDATE automation_status SET is_running = 0 WHERE username = ?
-        ''', (username,))
-    
-    conn.commit()
-    conn.close()
+    try:
+        if is_running:
+            automation_status_collection.replace_one(
+                {'username': username},
+                {
+                    'username': username,
+                    'is_running': True,
+                    'started_at': datetime.now().isoformat(),
+                    'last_check': datetime.now().isoformat(),
+                    'last_action_count': 0
+                },
+                upsert=True
+            )
+        else:
+            automation_status_collection.update_one(
+                {'username': username},
+                {'$set': {'is_running': False}}
+            )
+    except Exception as e:
+        print(f"Error setting automation status: {e}")
 
 def get_automation_status(username):
     """Get automation status for user"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT * FROM automation_status WHERE username = ?
-    ''', (username,))
-    
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return {
-            'is_running': bool(result['is_running']),
-            'started_at': result['started_at'],
-            'last_check': result['last_check'],
-            'last_action_count': result['last_action_count']
-        }
-    else:
+    try:
+        result = automation_status_collection.find_one({'username': username})
+
+        if result:
+            return {
+                'is_running': result.get('is_running', False),
+                'started_at': result.get('started_at'),
+                'last_check': result.get('last_check'),
+                'last_action_count': result.get('last_action_count', 0)
+            }
+        else:
+            return {
+                'is_running': False,
+                'started_at': None,
+                'last_check': None,
+                'last_action_count': 0
+            }
+    except Exception as e:
+        print(f"Error getting automation status: {e}")
         return {
             'is_running': False,
             'started_at': None,
@@ -766,7 +759,8 @@ class AutomationEngine:
                     "action": "kill",
                     "reason": f"0 conversions with ${spend} spend (Limit: ${rule['kill_on_no_conversion_spend']}) [Payout: ${rule['payout']}]",
                     "campaign_id": campaign_id,
-                    "rule_id": rule["id"]
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"]
                 }
             return {"action": "no_action", "reason": f"0 conversions - waiting for first conversion [Payout: ${rule['payout']}]"}
         
@@ -777,7 +771,8 @@ class AutomationEngine:
                     "action": "kill",
                     "reason": f"Only 1 conversion with ${spend} spend (Limit: ${rule['kill_on_one_conversion_spend']}) [Payout: ${rule['payout']}]",
                     "campaign_id": campaign_id,
-                    "rule_id": rule["id"]
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"]
                 }
             return {"action": "no_action", "reason": f"Only 1 conversion - too little data [Payout: ${rule['payout']}]"}
         
@@ -788,7 +783,8 @@ class AutomationEngine:
                     "action": "kill",
                     "reason": f"CPA ${cpa} exceeds limit ${rule['max_cpa_allowed']} at {conversions} conversions [Payout: ${rule['payout']}]",
                     "campaign_id": campaign_id,
-                    "rule_id": rule["id"]
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"]
                 }
             
             if (rule["reactivate_if_profitable"] and 
@@ -799,7 +795,8 @@ class AutomationEngine:
                     "action": "reactivate",
                     "reason": f"CPA ${cpa} below threshold ${rule['reactivate_if_cpa_below']} at {conversions} conversions [Payout: ${rule['payout']}]",
                     "campaign_id": campaign_id,
-                    "rule_id": rule["id"]
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"]
                 }
             
             return {"action": "no_action", "reason": f"CPA ${cpa} at {conversions} conversions within range [Payout: ${rule['payout']}]"}
@@ -810,23 +807,24 @@ class AutomationEngine:
         """Execute rule action"""
         if evaluation["action"] in ["skip", "no_action"]:
             return {"success": True, "message": evaluation["reason"]}
-        
+
         campaign_id = evaluation["campaign_id"]
-        
+        rule_name = evaluation.get("rule_name", "Unknown Rule")
+
         if evaluation["action"] == "kill":
-            result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule["name"])
+            result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule_name)
             if result["success"]:
                 return {"success": True, "message": f"Campaign paused: {evaluation['reason']}"}
             else:
                 return {"success": False, "message": f"Failed to pause campaign: {result.get('error')}"}
 
         elif evaluation["action"] == "reactivate":
-            result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule["name"])
+            result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule_name)
             if result["success"]:
                 return {"success": True, "message": f"Campaign reactivated: {evaluation['reason']}"}
             else:
                 return {"success": False, "message": f"Failed to reactivate campaign: {result.get('error')}"}
-        
+
         return {"success": False, "message": "Unknown action"}
     
     def run_automation_cycle(self):
@@ -854,7 +852,7 @@ class AutomationEngine:
                 # Apply each assigned rule
                 for rule_id in assigned_rule_ids:
                     rule = next((r for r in rules if r["id"] == rule_id), None)
-                    if not rule or not rule.get("active", True):
+                    if not rule:
                         continue
                     
                     evaluation = self.evaluate_rule_for_campaign(rule, campaign)
@@ -874,15 +872,18 @@ class AutomationEngine:
                             print(f"🎯 Action taken: {evaluation['action']} for {campaign['name']} - {evaluation['reason']}")
             
             # Update automation status
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE automation_status 
-                SET last_check = ?, last_action_count = ?
-                WHERE username = ?
-            ''', (datetime.now().isoformat(), actions_taken, self.username))
-            conn.commit()
-            conn.close()
+            try:
+                automation_status_collection.update_one(
+                    {'username': self.username},
+                    {
+                        '$set': {
+                            'last_check': datetime.now().isoformat(),
+                            'last_action_count': actions_taken
+                        }
+                    }
+                )
+            except Exception as e:
+                print(f"Error updating automation status: {e}")
             
             return {
                 "actions": actions_taken,
@@ -1460,14 +1461,16 @@ def update_rule(rule_id):
 @app.route('/dashboard/api/rules/list', methods=['GET'])
 @login_required
 def list_rules():
-    """List all rules for current user from cache"""
+    """List all rules for current user directly from database"""
     username = session.get('username')
-    cached_data = refresh_all_data(username, force=False)
+
+    # Load rules directly from database for immediate updates
+    rules = load_rules_from_db(username)
 
     return jsonify({
         "success": True,
-        "rules": cached_data.get("rules", []),
-        "last_refresh": cached_data.get("last_refresh")
+        "rules": rules,
+        "last_refresh": datetime.now().isoformat()
     })
 
 @app.route('/dashboard/api/rules/assign/<campaign_id>/<rule_id>', methods=['POST'])
@@ -1506,16 +1509,15 @@ def assign_rule_to_campaign(campaign_id, rule_id):
                 badge="success"
             )
 
-            # 🚀 AUTOMATIC AUTOMATION START - Keine Buttons mehr nötig!
-            print(f"🚀 Auto-starting automation for {username} after rule assignment")
-            start_user_automation(username)
+            # 🚀 AUTOMATIC AUTOMATION START - DISABLED per user request
+            print(f"ℹ️ Automation disabled - rule assigned without auto-start")
 
             return jsonify({
                 "success": True,
-                "message": f"Rule assigned and automation auto-started!",
+                "message": f"Rule assigned successfully!",
                 "campaign_id": campaign_id,
                 "rule_id": rule_id,
-                "automation_started": True
+                "automation_started": False
             })
         else:
             return jsonify({"success": False, "error": "Rule already assigned to this campaign"})
@@ -1572,6 +1574,11 @@ def delete_rule(rule_id):
         if not has_active_rule_assignments(username):
             print(f"⏹️ No more rule assignments for {username}, stopping automation")
             stop_user_automation(username)
+
+        # Invalidate cache to force refresh
+        user_data = get_user_data(username)
+        user_data["cached_data"]["last_refresh"] = None
+        save_user_data(username)
 
         return jsonify({
             "success": True,
@@ -2260,7 +2267,7 @@ if __name__ == '__main__':
     print("🔧 REVOLUTIONARY FEATURES:")
     print("   ✅ AUTOMATIC Automation - Starts sofort bei Regel-Zuweisung!")
     print("   ✅ DYNAMIC Payouts - Verwendet Regel-Payout statt hardcoded $75!")
-    print("   ✅ SQLite Datenbank für persistente Regeln")
+    print("   ✅ MongoDB Database für persistente Regeln")
     print("   ✅ Modern UI inspired by Notion & Linear")
     print("   ✅ Fast loading & flüssige Performance")
     print("   ✅ Cleaned up - removed unnecessary buttons")

@@ -464,9 +464,21 @@
 
 
 
-    // Load rules (keep for backward compatibility)
+    // Load rules (direct API call for immediate updates)
     function loadRules() {
-        loadRulesOptimized();
+        fetch('/dashboard/api/rules/list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allRules = data.rules || [];
+                    renderRules(allRules);
+                } else {
+                    console.error('Error loading rules:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading rules:', error);
+            });
     }
 
     // Old load rules method (keep for fallback)
@@ -598,8 +610,14 @@
                 document.getElementById('cancelButton').style.display = 'none';
                 document.querySelector('.form-title').textContent = 'Create New Rule';
 
-                // Reload rules
-                loadRules();
+                // For new rules, add to UI immediately
+                if (!isEditing && data.rule) {
+                    allRules.push(data.rule);
+                    renderRules(allRules);
+                } else {
+                    // For updates, reload to get fresh data
+                    loadRules();
+                }
 
                 const message = isEditing ? 'Rule updated successfully!' : 'Rule created successfully!';
                 alert(message);
@@ -694,18 +712,26 @@
             return;
         }
 
+        // Optimistically remove from UI immediately
+        allRules = allRules.filter(rule => rule.id !== ruleId);
+        renderRules(allRules);
+
         fetch(`/dashboard/api/rules/delete/${ruleId}`, { method: 'POST' })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    loadRules();
+                    // Rule already removed from UI, just show success message
                     alert('Rule deleted successfully');
                 } else {
+                    // Restore rule to UI if deletion failed
+                    loadRules();
                     alert('Error deleting rule: ' + (data.error || 'Unknown error'));
                 }
             })
             .catch(error => {
                 console.error('Error deleting rule:', error);
+                // Restore rule to UI if deletion failed
+                loadRules();
                 alert('Error deleting rule');
             });
     }
