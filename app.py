@@ -83,16 +83,27 @@ def save_rule_to_db(username, rule):
             'username': username,
             'name': rule['name'],
             'payout': rule['payout'],
-            'kill_on_no_conversion_spend': rule['kill_on_no_conversion_spend'],
-            'kill_on_one_conversion_spend': rule['kill_on_one_conversion_spend'],
-            'profit_buffer': rule['profit_buffer'],
-            'max_cpa_allowed': rule['max_cpa_allowed'],
-            'reactivate_if_cpa_below': rule['reactivate_if_cpa_below'],
-            'check_interval_minutes': rule['check_interval_minutes'],
-            'reactivate_if_profitable': rule['reactivate_if_profitable'],
             'created_at': rule['created_at'],
-            'active': rule['active']
+            'active': rule['active'],
+            'rule_type': rule.get('rule_type', 'chained'),  # All rules are chained now
+            'chain_logic': rule.get('chain_logic', [])  # Array of chained conditions
         }
+
+        # Add legacy fields only if they exist (for backward compatibility)
+        if 'kill_on_no_conversion_spend' in rule:
+            rule_doc['kill_on_no_conversion_spend'] = rule['kill_on_no_conversion_spend']
+        if 'kill_on_one_conversion_spend' in rule:
+            rule_doc['kill_on_one_conversion_spend'] = rule['kill_on_one_conversion_spend']
+        if 'profit_buffer' in rule:
+            rule_doc['profit_buffer'] = rule['profit_buffer']
+        if 'max_cpa_allowed' in rule:
+            rule_doc['max_cpa_allowed'] = rule['max_cpa_allowed']
+        if 'reactivate_if_cpa_below' in rule:
+            rule_doc['reactivate_if_cpa_below'] = rule['reactivate_if_cpa_below']
+        if 'check_interval_minutes' in rule:
+            rule_doc['check_interval_minutes'] = rule['check_interval_minutes']
+        if 'reactivate_if_profitable' in rule:
+            rule_doc['reactivate_if_profitable'] = rule['reactivate_if_profitable']
 
         # Use upsert to replace if exists
         rules_collection.replace_one(
@@ -119,16 +130,28 @@ def load_rules_from_db(username):
                 'id': doc['id'],
                 'name': doc['name'],
                 'payout': doc['payout'],
-                'kill_on_no_conversion_spend': doc['kill_on_no_conversion_spend'],
-                'kill_on_one_conversion_spend': doc['kill_on_one_conversion_spend'],
-                'profit_buffer': doc['profit_buffer'],
-                'max_cpa_allowed': doc['max_cpa_allowed'],
-                'reactivate_if_cpa_below': doc['reactivate_if_cpa_below'],
-                'check_interval_minutes': doc['check_interval_minutes'],
-                'reactivate_if_profitable': doc['reactivate_if_profitable'],
                 'created_at': doc['created_at'],
-                'active': doc.get('active', True)  # Default to True for backward compatibility
+                'active': doc.get('active', True),  # Default to True for backward compatibility
+                'rule_type': doc.get('rule_type', 'chained'),  # Default to chained
+                'chain_logic': doc.get('chain_logic', [])
             }
+
+            # Add legacy fields only if they exist (for backward compatibility)
+            if 'kill_on_no_conversion_spend' in doc:
+                rule['kill_on_no_conversion_spend'] = doc['kill_on_no_conversion_spend']
+            if 'kill_on_one_conversion_spend' in doc:
+                rule['kill_on_one_conversion_spend'] = doc['kill_on_one_conversion_spend']
+            if 'profit_buffer' in doc:
+                rule['profit_buffer'] = doc['profit_buffer']
+            if 'max_cpa_allowed' in doc:
+                rule['max_cpa_allowed'] = doc['max_cpa_allowed']
+            if 'reactivate_if_cpa_below' in doc:
+                rule['reactivate_if_cpa_below'] = doc['reactivate_if_cpa_below']
+            if 'check_interval_minutes' in doc:
+                rule['check_interval_minutes'] = doc['check_interval_minutes']
+            if 'reactivate_if_profitable' in doc:
+                rule['reactivate_if_profitable'] = doc['reactivate_if_profitable']
+
             rules.append(rule)
 
         return rules
@@ -737,21 +760,26 @@ class AutomationEngine:
         }
     
     def evaluate_rule_for_campaign(self, rule, campaign):
-        """Evaluate rule for campaign with DYNAMIC payout"""
+        """Evaluate rule for campaign with DYNAMIC payout and chained logic support"""
         if not campaign or campaign.get("status") not in ["ACTIVE", "PAUSED"]:
             return {"action": "skip", "reason": "Campaign not found or invalid status"}
-        
+
         campaign_id = campaign["id"]
         spend = campaign.get("spend", 0)
-        
+
         # Get campaign data with RULE'S payout (FIXED!)
         campaign_data = self.get_campaign_data_with_dynamic_payout(campaign_id, rule["payout"])
         conversions = campaign_data["conversions"]
         cpa = campaign_data["cpa"]
-        
+
         print(f"🔍 Evaluating rule '{rule['name']}' for campaign {campaign['name']}")
         print(f"   Spend: ${spend}, Conversions: {conversions}, CPA: ${cpa} (Payout: ${rule['payout']})")
-        
+
+        # Check if this is a chained rule
+        if rule.get('rule_type') == 'chained' and rule.get('chain_logic'):
+            return self.evaluate_chained_rule(rule, campaign_data, campaign_id, campaign)
+
+        # Original simple rule logic
         # Rule 1: Kill at 0 conversions over spend limit
         if conversions == 0:
             if spend >= rule["kill_on_no_conversion_spend"] and campaign["status"] == "ACTIVE":
@@ -763,8 +791,8 @@ class AutomationEngine:
                     "rule_name": rule["name"]
                 }
             return {"action": "no_action", "reason": f"0 conversions - waiting for first conversion [Payout: ${rule['payout']}]"}
-        
-        # Rule 2: Kill at exactly 1 conversion over spend limit  
+
+        # Rule 2: Kill at exactly 1 conversion over spend limit
         if conversions == 1:
             if spend >= rule["kill_on_one_conversion_spend"] and campaign["status"] == "ACTIVE":
                 return {
@@ -775,7 +803,7 @@ class AutomationEngine:
                     "rule_name": rule["name"]
                 }
             return {"action": "no_action", "reason": f"Only 1 conversion - too little data [Payout: ${rule['payout']}]"}
-        
+
         # Rule 3: CPA-based decisions at 2+ conversions
         if conversions >= 2:
             if cpa >= rule["max_cpa_allowed"] and campaign["status"] == "ACTIVE":
@@ -786,11 +814,11 @@ class AutomationEngine:
                     "rule_id": rule["id"],
                     "rule_name": rule["name"]
                 }
-            
-            if (rule["reactivate_if_profitable"] and 
+
+            if (rule["reactivate_if_profitable"] and
                 cpa < rule["reactivate_if_cpa_below"] and
                 campaign["status"] == "PAUSED"):
-                
+
                 return {
                     "action": "reactivate",
                     "reason": f"CPA ${cpa} below threshold ${rule['reactivate_if_cpa_below']} at {conversions} conversions [Payout: ${rule['payout']}]",
@@ -798,11 +826,99 @@ class AutomationEngine:
                     "rule_id": rule["id"],
                     "rule_name": rule["name"]
                 }
-            
+
             return {"action": "no_action", "reason": f"CPA ${cpa} at {conversions} conversions within range [Payout: ${rule['payout']}]"}
-        
+
         return {"action": "no_action", "reason": f"Unknown conversion status [Payout: ${rule['payout']}]"}
-    
+
+    def evaluate_chained_rule(self, rule, campaign_data, campaign_id, campaign):
+        """Evaluate chained logic rule - supports complex decision trees"""
+        conversions = campaign_data["conversions"]
+        spend = campaign_data.get("spend", campaign.get("spend", 0))
+        cpa = campaign_data["cpa"]
+        payout = rule["payout"]
+
+        print(f"🔗 Evaluating chained rule with {len(rule['chain_logic'])} conditions")
+
+        # Process each condition in the chain
+        for i, condition in enumerate(rule['chain_logic']):
+            print(f"   🔍 Condition {i+1}: {condition.get('description', 'No description')}")
+
+            # Check if this condition matches
+            if self.check_condition(condition, conversions, spend, cpa, payout, campaign):
+                action_result = self.execute_condition_action(condition, campaign_id, rule, conversions, spend, cpa, payout)
+                if action_result["action"] != "continue":
+                    return action_result
+
+        # If no conditions matched, return no action
+        return {"action": "no_action", "reason": "No chained conditions matched"}
+
+    def check_condition(self, condition, conversions, spend, cpa, payout, campaign):
+        """Check if a condition matches current campaign state"""
+        condition_type = condition.get("type", "")
+
+        if condition_type == "conversions_and_spend":
+            # e.g., "0 conversions and spend >= $50"
+            target_conversions = condition.get("conversions", 0)
+            spend_threshold = condition.get("spend_threshold", 0)
+            return conversions == target_conversions and spend >= spend_threshold
+
+        elif condition_type == "conversions_exact":
+            # e.g., "exactly 1 conversion"
+            target_conversions = condition.get("conversions", 0)
+            return conversions == target_conversions
+
+        elif condition_type == "cpa_threshold":
+            # e.g., "CPA > payout - buffer"
+            cpa_threshold = condition.get("cpa_threshold", 0)
+            operator = condition.get("operator", ">")
+
+            if operator == ">":
+                return cpa > cpa_threshold
+            elif operator == ">=":
+                return cpa >= cpa_threshold
+            elif operator == "<":
+                return cpa < cpa_threshold
+            elif operator == "<=":
+                return cpa <= cpa_threshold
+            elif operator == "==":
+                return abs(cpa - cpa_threshold) < 0.01
+
+        elif condition_type == "status":
+            # e.g., "campaign is PAUSED"
+            target_status = condition.get("status", "")
+            return campaign.get("status") == target_status
+
+        return False
+
+    def execute_condition_action(self, condition, campaign_id, rule, conversions, spend, cpa, payout):
+        """Execute the action for a matched condition"""
+        action = condition.get("action", "no_action")
+
+        if action == "kill":
+            return {
+                "action": "kill",
+                "reason": f"{condition.get('reason', 'Chained rule triggered')} [Conv: {conversions}, Spend: ${spend}, CPA: ${cpa}, Payout: ${payout}]",
+                "campaign_id": campaign_id,
+                "rule_id": rule["id"],
+                "rule_name": rule["name"]
+            }
+
+        elif action == "reactivate":
+            return {
+                "action": "reactivate",
+                "reason": f"{condition.get('reason', 'Chained rule reactivation')} [Conv: {conversions}, Spend: ${spend}, CPA: ${cpa}, Payout: ${payout}]",
+                "campaign_id": campaign_id,
+                "rule_id": rule["id"],
+                "rule_name": rule["name"]
+            }
+
+        elif action == "continue":
+            # Continue to next condition in chain
+            return {"action": "continue", "reason": "Continue to next condition"}
+
+        return {"action": "no_action", "reason": "No action specified"}
+
     def execute_action(self, evaluation):
         """Execute rule action"""
         if evaluation["action"] in ["skip", "no_action"]:
@@ -1354,53 +1470,7 @@ def toggle_campaign_status(campaign_id, new_status, triggered_by_rule=False, rul
 # REVOLUTIONÄRE REGEL-API
 # ===============================
 
-@app.route('/dashboard/api/rules/create', methods=['POST'])
-@login_required
-def create_rule():
-    """Create new rule with automatic activation"""
-    try:
-        username = session.get('username')
-        rule_data = request.json
 
-        rule = {
-            "id": f"rule_{int(time.time())}_{username}",
-            "name": rule_data.get("name", "Unnamed Rule"),
-            "payout": float(rule_data.get("payout", 75)),
-            "kill_on_no_conversion_spend": float(rule_data.get("kill_on_no_conversion_spend", 50)),
-            "kill_on_one_conversion_spend": float(rule_data.get("kill_on_one_conversion_spend", 60)),
-            "profit_buffer": float(rule_data.get("profit_buffer", 15)),
-            "max_cpa_allowed": float(rule_data.get("max_cpa_allowed", 60)),
-            "reactivate_if_cpa_below": float(rule_data.get("reactivate_if_cpa_below", 60)),
-            "check_interval_minutes": int(rule_data.get("check_interval_minutes", 5)),
-            "reactivate_if_profitable": rule_data.get("reactivate_if_profitable", True),
-            "created_at": datetime.now().isoformat(),
-            "active": True
-        }
-
-        if "max_cpa_allowed" not in rule_data:
-            rule["max_cpa_allowed"] = rule["payout"] - rule["profit_buffer"]
-
-        save_rule_to_db(username, rule)
-
-        # Log activity
-        log_activity(
-            username=username,
-            activity_type="rule_created",
-            title="Rule Created",
-            description=f"Created new automation rule '{rule['name']}' with ${rule['payout']} payout",
-            icon="rule",
-            badge="success"
-        )
-
-        # Invalidate cache to force refresh
-        user_data = get_user_data(username)
-        user_data["cached_data"]["last_refresh"] = None
-        save_user_data(username)
-
-        return jsonify({"success": True, "rule": rule})
-
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/dashboard/api/rules/update/<rule_id>', methods=['POST'])
 @login_required
@@ -1417,24 +1487,16 @@ def update_rule(rule_id):
         if not existing_rule:
             return jsonify({"success": False, "error": "Rule not found"})
 
-        # Update rule data
+        # Update rule data - only essential fields for chained rules
         rule = {
             "id": rule_id,  # Keep the same ID
             "name": rule_data.get("name", existing_rule["name"]),
             "payout": float(rule_data.get("payout", existing_rule["payout"])),
-            "kill_on_no_conversion_spend": float(rule_data.get("kill_on_no_conversion_spend", existing_rule["kill_on_no_conversion_spend"])),
-            "kill_on_one_conversion_spend": float(rule_data.get("kill_on_one_conversion_spend", existing_rule["kill_on_one_conversion_spend"])),
-            "profit_buffer": float(rule_data.get("profit_buffer", existing_rule["profit_buffer"])),
-            "max_cpa_allowed": float(rule_data.get("max_cpa_allowed", existing_rule["max_cpa_allowed"])),
-            "reactivate_if_cpa_below": float(rule_data.get("reactivate_if_cpa_below", existing_rule["reactivate_if_cpa_below"])),
-            "check_interval_minutes": int(rule_data.get("check_interval_minutes", existing_rule["check_interval_minutes"])),
-            "reactivate_if_profitable": rule_data.get("reactivate_if_profitable", existing_rule["reactivate_if_profitable"]),
             "created_at": existing_rule["created_at"],  # Keep original creation time
-            "active": True
+            "active": True,
+            "rule_type": "chained",  # All rules are chained now
+            "chain_logic": rule_data.get("chain_logic", existing_rule.get("chain_logic", []))
         }
-
-        if "max_cpa_allowed" not in rule_data:
-            rule["max_cpa_allowed"] = rule["payout"] - rule["profit_buffer"]
 
         save_rule_to_db(username, rule)
 
@@ -1452,6 +1514,42 @@ def update_rule(rule_id):
         user_data = get_user_data(username)
         user_data["cached_data"]["last_refresh"] = None
         save_user_data(username)
+
+        return jsonify({"success": True, "rule": rule})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/dashboard/api/rules/create-chained', methods=['POST'])
+@login_required
+def create_chained_rule():
+    """Create a new chained logic rule"""
+    try:
+        username = session.get('username')
+        rule_data = request.get_json()
+
+        # Create chained rule with only essential fields
+        rule = {
+            "id": f"rule_{int(time.time())}_{username}",
+            "name": rule_data.get("name", "Chained Rule"),
+            "payout": float(rule_data.get("payout", 75)),
+            "created_at": datetime.now().isoformat(),
+            "active": True,
+            "rule_type": "chained",
+            "chain_logic": rule_data.get("chain_logic", [])
+        }
+
+        save_rule_to_db(username, rule)
+
+        # Log activity
+        log_activity(
+            username=username,
+            activity_type="rule_created",
+            title="Chained Rule Created",
+            description=f"Created new chained automation rule '{rule['name']}' with ${rule['payout']} payout",
+            icon="rule",
+            badge="success"
+        )
 
         return jsonify({"success": True, "rule": rule})
 

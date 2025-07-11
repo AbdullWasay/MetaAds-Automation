@@ -312,6 +312,14 @@
         color: #dc2626;
     }
 
+    .profit-positive {
+        color: #10b981;
+    }
+
+    .profit-negative {
+        color: #ef4444;
+    }
+
     .match-badge {
         display: inline-block;
         padding: 2px 8px;
@@ -870,6 +878,9 @@
     // Global cache for fast loading
     let globalCachedData = null;
 
+    // Auto-refresh interval variable
+    let autoRefreshInterval = null;
+
     document.addEventListener('DOMContentLoaded', function() {
         // Set up refresh button
         const refreshBtn = document.getElementById('refreshBtn');
@@ -879,7 +890,85 @@
 
         // Load campaigns using optimized method
         loadCampaignsOptimized();
+
+        // Start auto-refresh every 20 seconds with filter preservation
+        startAutoRefresh();
     });
+
+    // Start automatic refresh every 20 seconds
+    function startAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+        }
+
+        autoRefreshInterval = setInterval(() => {
+            console.log('🔄 Auto-refreshing campaigns data...');
+            autoRefreshWithFilters();
+        }, 20000); // 20 seconds
+
+        console.log('✅ Auto-refresh started (every 20 seconds)');
+    }
+
+    // Auto-refresh with filter preservation - only update values, not reload page
+    function autoRefreshWithFilters() {
+        // Store current filter values
+        const currentFilters = {
+            status: document.getElementById('statusFilter').value,
+            match: document.getElementById('matchFilter').value,
+            date: document.getElementById('dateFilter').value
+        };
+
+        // Fetch fresh data
+        fetch(`/dashboard/api/campaigns/list?date_range=${currentFilters.date}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const newCampaigns = data.campaigns || [];
+
+                    // Update only the spend and revenue values in existing campaign rows
+                    updateCampaignValues(newCampaigns);
+
+                    console.log(`✅ Auto-refresh completed - updated values for ${newCampaigns.length} campaigns`);
+                }
+            })
+            .catch(error => {
+                console.error('Error during auto-refresh:', error);
+            });
+    }
+
+    // Update only spend and revenue values without reloading the entire table
+    function updateCampaignValues(newCampaigns) {
+        newCampaigns.forEach(newCampaign => {
+            const campaignRow = document.querySelector(`[data-campaign-id="${newCampaign.id}"]`);
+            if (campaignRow) {
+                // Update spend
+                const spendCell = campaignRow.querySelector('.campaign-spend');
+                if (spendCell) {
+                    spendCell.textContent = `$${parseFloat(newCampaign.spend || 0).toFixed(2)}`;
+                }
+
+                // Update revenue
+                const revenueCell = campaignRow.querySelector('.campaign-revenue');
+                if (revenueCell) {
+                    revenueCell.textContent = `$${parseFloat(newCampaign.revenue || 0).toFixed(2)}`;
+                }
+
+                // Update profit
+                const profitCell = campaignRow.querySelector('.campaign-profit');
+                if (profitCell) {
+                    const profit = (newCampaign.revenue || 0) - (newCampaign.spend || 0);
+                    profitCell.textContent = `$${profit.toFixed(2)}`;
+                    profitCell.className = `campaign-profit ${profit >= 0 ? 'profit-positive' : 'profit-negative'}`;
+                }
+
+                // Update CPA if available
+                const cpaCell = campaignRow.querySelector('.campaign-cpa');
+                if (cpaCell && newCampaign.cpa) {
+                    cpaCell.textContent = `$${parseFloat(newCampaign.cpa).toFixed(2)}`;
+                }
+            }
+        });
+    }
 
     // Optimized campaigns loading using global cache
     function loadCampaignsOptimized() {
@@ -1146,7 +1235,7 @@
                 </thead>
                 <tbody>
                     ${campaigns.map(campaign => `
-                        <tr class="campaign-row" onclick="toggleCampaignDetails('${campaign.id}')">
+                        <tr class="campaign-row" data-campaign-id="${campaign.id}" onclick="toggleCampaignDetails('${campaign.id}')">
                             <td>
                                 <div style="display: flex; align-items: center;">
                                     <i class="fas fa-chevron-right campaign-expand-icon" id="expand-${campaign.id}"></i>
@@ -1163,10 +1252,10 @@
                                 </div>
                             </td>
                             <td>
-                                <div class="metric-value">$${campaign.spend.toFixed(2)}</div>
+                                <div class="metric-value campaign-spend">$${campaign.spend.toFixed(2)}</div>
                             </td>
                             <td>
-                                <div class="metric-value">$${campaign.revenue.toFixed(2)}</div>
+                                <div class="metric-value campaign-revenue">$${campaign.revenue.toFixed(2)}</div>
                                 <div class="metric-label">${campaign.conversions} conversions</div>
                             </td>
                             <td>
@@ -1205,7 +1294,7 @@
                                         </div>
                                         <div class="detail-item">
                                             <div class="detail-label">CPA</div>
-                                            <div class="detail-value">$${calculateCPA(campaign).toFixed(2)}</div>
+                                            <div class="detail-value campaign-cpa">$${calculateCPA(campaign).toFixed(2)}</div>
                                         </div>
                                         <div class="detail-item">
                                             <div class="detail-label">Conversion Rate</div>
@@ -1213,7 +1302,7 @@
                                         </div>
                                         <div class="detail-item">
                                             <div class="detail-label">Profit</div>
-                                            <div class="detail-value ${calculateProfit(campaign) >= 0 ? 'roas-value good' : 'roas-value poor'}">
+                                            <div class="detail-value campaign-profit ${calculateProfit(campaign) >= 0 ? 'profit-positive' : 'profit-negative'}">
                                                 $${calculateProfit(campaign).toFixed(2)}
                                             </div>
                                         </div>
