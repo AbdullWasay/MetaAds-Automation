@@ -320,6 +320,95 @@
         color: #ef4444;
     }
 
+    /* Real-time update animations */
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+
+    .status-badge {
+        transition: all 0.3s ease;
+    }
+
+    .status-badge.active {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+    }
+
+    .status-badge.paused {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+        box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+    }
+
+    /* Automation Status Indicator */
+    .automation-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #94a3b8;
+        animation: pulse-slow 2s infinite;
+    }
+
+    .status-indicator.running {
+        background: #10b981;
+        animation: pulse-fast 1s infinite;
+    }
+
+    .status-indicator.stopped {
+        background: #ef4444;
+        animation: none;
+    }
+
+    @keyframes pulse-slow {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    @keyframes pulse-fast {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.2); }
+    }
+
+    .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .refresh-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .refresh-btn:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        transform: translateY(-1px);
+    }
+
     .match-badge {
         display: inline-block;
         padding: 2px 8px;
@@ -807,6 +896,16 @@
         </select>
     </div>
 
+    <div class="header-actions">
+        <div class="automation-status" id="automationStatus">
+            <span class="status-indicator"></span>
+            <span>Checking automation...</span>
+        </div>
+        <button onclick="refreshCampaigns()" class="refresh-btn" id="refreshBtn">
+            <i class="fas fa-sync-alt"></i>
+            Refresh
+        </button>
+    </div>
 
 </div>
 
@@ -891,11 +990,14 @@
         // Load campaigns using optimized method
         loadCampaignsOptimized();
 
-        // Start auto-refresh every 20 seconds with filter preservation
+        // Start auto-refresh every 10 seconds with filter preservation
         startAutoRefresh();
+
+        // Initial automation status check
+        updateAutomationStatus();
     });
 
-    // Start automatic refresh every 20 seconds
+    // Start automatic refresh every 10 seconds maximum for real-time updates
     function startAutoRefresh() {
         if (autoRefreshInterval) {
             clearInterval(autoRefreshInterval);
@@ -903,13 +1005,55 @@
 
         autoRefreshInterval = setInterval(() => {
             console.log('🔄 Auto-refreshing campaigns data...');
+            showAutoRefreshIndicator();
             autoRefreshWithFilters();
-        }, 20000); // 20 seconds
+        }, 10000); // 10 seconds maximum as requested
 
-        console.log('✅ Auto-refresh started (every 20 seconds)');
+        console.log('✅ Auto-refresh started (every 10 seconds)');
+
+        // Also update automation status
+        updateAutomationStatus();
     }
 
-    // Auto-refresh with filter preservation - only update values, not reload page
+    // Show visual indicator when auto-refresh happens
+    function showAutoRefreshIndicator() {
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.style.animation = 'pulse 0.5s ease-in-out';
+            refreshBtn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Auto-Refreshing...';
+
+            setTimeout(() => {
+                refreshBtn.style.animation = '';
+                refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+            }, 2000);
+        }
+    }
+
+    // Update automation status indicator
+    function updateAutomationStatus() {
+        fetch('/dashboard/api/automation/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const statusElement = document.getElementById('automationStatus');
+                    const indicator = statusElement.querySelector('.status-indicator');
+                    const text = statusElement.querySelector('span:last-child');
+
+                    if (data.status.is_running) {
+                        indicator.className = 'status-indicator running';
+                        text.textContent = `Rules Active (${data.status.active_rules} rules)`;
+                    } else {
+                        indicator.className = 'status-indicator stopped';
+                        text.textContent = 'Rules Inactive';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error updating automation status:', error);
+            });
+    }
+
+    // Auto-refresh with filter preservation - updates values automatically every 10 seconds
     function autoRefreshWithFilters() {
         // Store current filter values
         const currentFilters = {
@@ -918,29 +1062,115 @@
             date: document.getElementById('dateFilter').value
         };
 
-        // Fetch fresh data
+        console.log('🔄 Starting auto-refresh...');
+
+        // Use the reliable campaigns list endpoint for consistent updates
         fetch(`/dashboard/api/campaigns/list?date_range=${currentFilters.date}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     const newCampaigns = data.campaigns || [];
+                    console.log(`📊 Received ${newCampaigns.length} campaigns from API`);
 
-                    // Update only the spend and revenue values in existing campaign rows
+                    // Update campaign values in the table
                     updateCampaignValues(newCampaigns);
 
-                    console.log(`✅ Auto-refresh completed - updated values for ${newCampaigns.length} campaigns`);
+                    // Restore filter values after update
+                    document.getElementById('statusFilter').value = currentFilters.status;
+                    document.getElementById('matchFilter').value = currentFilters.match;
+                    document.getElementById('dateFilter').value = currentFilters.date;
+
+                    // Reapply filters to show correct campaigns
+                    filterCampaigns();
+
+                    console.log(`✅ Auto-refresh completed - updated ${newCampaigns.length} campaigns`);
+                } else {
+                    console.error('❌ Auto-refresh failed:', data.error);
                 }
             })
             .catch(error => {
-                console.error('Error during auto-refresh:', error);
+                console.error('❌ Auto-refresh error:', error);
             });
     }
 
-    // Update only spend and revenue values without reloading the entire table
+    // Fast live update function for real-time status changes
+    function updateCampaignValuesLive(liveCampaigns) {
+        liveCampaigns.forEach(liveCampaign => {
+            const campaignRow = document.querySelector(`[data-campaign-id="${liveCampaign.id}"]`);
+            if (campaignRow) {
+                // Update status badge (most important for rule changes)
+                const statusBadge = campaignRow.querySelector('.status-badge');
+                if (statusBadge && statusBadge.textContent !== liveCampaign.status) {
+                    statusBadge.textContent = liveCampaign.status;
+                    statusBadge.className = `status-badge ${liveCampaign.status.toLowerCase()}`;
+
+                    // Add visual indicator for status change
+                    statusBadge.style.animation = 'pulse 0.5s ease-in-out';
+                    setTimeout(() => {
+                        statusBadge.style.animation = '';
+                    }, 500);
+                }
+
+                // Update spend
+                const spendCell = campaignRow.querySelector('.campaign-spend');
+                if (spendCell) {
+                    spendCell.textContent = `$${parseFloat(liveCampaign.spend || 0).toFixed(2)}`;
+                }
+
+                // Update revenue
+                const revenueCell = campaignRow.querySelector('.campaign-revenue');
+                if (revenueCell) {
+                    revenueCell.textContent = `$${parseFloat(liveCampaign.revenue || 0).toFixed(2)}`;
+                }
+
+                // Update conversions
+                const conversionsCell = campaignRow.querySelector('.campaign-conversions');
+                if (conversionsCell) {
+                    conversionsCell.textContent = liveCampaign.conversions || 0;
+                }
+
+                // Update CPA
+                const cpaCell = campaignRow.querySelector('.campaign-cpa');
+                if (cpaCell) {
+                    const cpa = liveCampaign.cpa || 0;
+                    cpaCell.textContent = cpa > 0 ? `$${parseFloat(cpa).toFixed(2)}` : '$0.00';
+                }
+
+                // Update profit
+                const profitCell = campaignRow.querySelector('.campaign-profit');
+                if (profitCell) {
+                    const profit = (liveCampaign.revenue || 0) - (liveCampaign.spend || 0);
+                    profitCell.textContent = `$${profit.toFixed(2)}`;
+                    profitCell.className = `campaign-profit ${profit >= 0 ? 'profit-positive' : 'profit-negative'}`;
+                }
+            }
+        });
+    }
+
+    // Update campaign values including STATUS automatically (this is the key fix!)
     function updateCampaignValues(newCampaigns) {
+        console.log('🔄 Updating campaign values...');
+
         newCampaigns.forEach(newCampaign => {
             const campaignRow = document.querySelector(`[data-campaign-id="${newCampaign.id}"]`);
             if (campaignRow) {
+                console.log(`📊 Updating campaign: ${newCampaign.name} - Status: ${newCampaign.status}`);
+
+                // UPDATE STATUS BADGE - This was missing!
+                const statusBadge = campaignRow.querySelector('.status-badge');
+                if (statusBadge) {
+                    const oldStatus = statusBadge.textContent;
+                    statusBadge.textContent = newCampaign.status;
+                    statusBadge.className = `status-badge ${newCampaign.status.toLowerCase()}`;
+
+                    // Show visual feedback if status changed
+                    if (oldStatus !== newCampaign.status) {
+                        console.log(`🔄 Status changed: ${newCampaign.name} from ${oldStatus} to ${newCampaign.status}`);
+                        statusBadge.style.animation = 'pulse 0.5s ease-in-out';
+                        setTimeout(() => statusBadge.style.animation = '', 500);
+                    }
+                }
+
                 // Update spend
                 const spendCell = campaignRow.querySelector('.campaign-spend');
                 if (spendCell) {
@@ -953,6 +1183,12 @@
                     revenueCell.textContent = `$${parseFloat(newCampaign.revenue || 0).toFixed(2)}`;
                 }
 
+                // Update conversions
+                const conversionsCell = campaignRow.querySelector('.campaign-conversions');
+                if (conversionsCell) {
+                    conversionsCell.textContent = newCampaign.conversions || 0;
+                }
+
                 // Update profit
                 const profitCell = campaignRow.querySelector('.campaign-profit');
                 if (profitCell) {
@@ -961,13 +1197,23 @@
                     profitCell.className = `campaign-profit ${profit >= 0 ? 'profit-positive' : 'profit-negative'}`;
                 }
 
-                // Update CPA if available
+                // Update CPA
                 const cpaCell = campaignRow.querySelector('.campaign-cpa');
-                if (cpaCell && newCampaign.cpa) {
-                    cpaCell.textContent = `$${parseFloat(newCampaign.cpa).toFixed(2)}`;
+                if (cpaCell) {
+                    const cpa = newCampaign.cpa || 0;
+                    cpaCell.textContent = cpa > 0 ? `$${parseFloat(cpa).toFixed(2)}` : '$0.00';
+                }
+
+                // Update ROAS if available
+                const roasCell = campaignRow.querySelector('.campaign-roas');
+                if (roasCell) {
+                    const roas = newCampaign.roas || 0;
+                    roasCell.textContent = roas > 0 ? `${parseFloat(roas).toFixed(2)}x` : '0.00x';
                 }
             }
         });
+
+        console.log('✅ Campaign values updated successfully');
     }
 
     // Optimized campaigns loading using global cache
@@ -1417,6 +1663,14 @@
                         clearCampaignsCache();
                         filterCampaigns(); // Re-render with current filters
                     }
+
+                    // INSTANT RULE CHECK: Trigger immediate refresh to catch rule actions
+                    console.log(`⚡ INSTANT CHECK: Campaign ${campaignId} status changed to ${newStatus}`);
+                    setTimeout(() => {
+                        console.log('⚡ Checking for instant rule actions...');
+                        autoRefreshWithFilters(); // Check for rule actions immediately
+                    }, 1000); // Wait 1 second for backend rule processing
+
                 } else {
                     // Revert toggle state on error
                     toggle.checked = originalChecked;

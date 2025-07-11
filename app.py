@@ -1028,8 +1028,8 @@ class AutomationEngine:
                     if result["actions"] > 0:
                         print(f"🎯 User {self.username}: {result['actions']} actions taken")
                     
-                    # Sleep for 30 seconds between checks
-                    time.sleep(30)
+                    # Sleep for 2 seconds between checks for INSTANT responsiveness
+                    time.sleep(2)
                     
                 except Exception as e:
                     print(f"❌ Automation loop error for {self.username}: {str(e)}")
@@ -1426,6 +1426,11 @@ def toggle_campaign_status(campaign_id, new_status, triggered_by_rule=False, rul
 
             save_user_data(username)
 
+            # INSTANT RULE CHECK: Check rules immediately after status change
+            if not triggered_by_rule:  # Only check if this wasn't already triggered by a rule
+                print(f"🚀 INSTANT RULE CHECK: Campaign {campaign_name} status changed to {new_status}")
+                instant_rule_check_for_campaign(username, campaign_id)
+
             # Log activity
             if triggered_by_rule and rule_name:
                 action_text = "paused" if new_status == "PAUSED" else "activated"
@@ -1466,8 +1471,85 @@ def toggle_campaign_status(campaign_id, new_status, triggered_by_rule=False, rul
     except Exception as e:
         return {"success": False, "error": f"Exception: {str(e)}"}
 
+def instant_rule_check_for_campaign(username, campaign_id):
+    """Perform INSTANT rule check for a specific campaign when status changes"""
+    try:
+        print(f"⚡ INSTANT RULE CHECK: Checking rules for campaign {campaign_id}")
+
+        # Get user data and rules
+        user_data = get_user_data(username)
+        campaigns = user_data.get("campaigns", [])
+        rules = load_rules_from_db(username)
+
+        if not rules:
+            print(f"⚡ No rules found for {username}")
+            return
+
+        # Find the specific campaign
+        target_campaign = None
+        for campaign in campaigns:
+            if campaign["id"] == campaign_id:
+                target_campaign = campaign
+                break
+
+        if not target_campaign:
+            print(f"⚡ Campaign {campaign_id} not found")
+            return
+
+        print(f"⚡ Found campaign: {target_campaign['name']} - Status: {target_campaign['status']}")
+
+        # Get assigned rules for this campaign
+        assigned_rule_ids = get_assigned_rules_for_campaign(username, campaign_id)
+        if not assigned_rule_ids:
+            print(f"⚡ No rules assigned to campaign {campaign_id}")
+            return
+
+        print(f"⚡ Found {len(assigned_rule_ids)} assigned rules")
+
+        # Check each assigned rule INSTANTLY
+        for rule_id in assigned_rule_ids:
+            rule = next((r for r in rules if r["id"] == rule_id), None)
+            if not rule or not rule.get("active", True):
+                continue
+
+            print(f"⚡ Checking rule: {rule['name']}")
+
+            # Create automation engine and get fresh campaign data
+            engine = AutomationEngine(username)
+            fresh_campaign_data = engine.get_campaign_data_with_dynamic_payout(campaign_id, rule["payout"])
+
+            if fresh_campaign_data:
+                # Evaluate rule instantly
+                evaluation = engine.evaluate_chained_rule(rule, fresh_campaign_data)
+
+                print(f"⚡ Rule evaluation result: {evaluation['action']} - {evaluation['reason']}")
+
+                if evaluation["action"] in ["kill", "reactivate"]:
+                    # Execute action INSTANTLY
+                    if evaluation["action"] == "kill" and fresh_campaign_data["status"] == "ACTIVE":
+                        print(f"🔴 INSTANT KILL: Pausing campaign {target_campaign['name']}")
+                        result = toggle_campaign_status(campaign_id, "PAUSED", triggered_by_rule=True, rule_name=rule["name"])
+                        if result["success"]:
+                            print(f"✅ Campaign {target_campaign['name']} INSTANTLY paused by rule {rule['name']}")
+                        else:
+                            print(f"❌ Failed to pause campaign: {result.get('error')}")
+
+                    elif evaluation["action"] == "reactivate" and fresh_campaign_data["status"] == "PAUSED":
+                        print(f"🟢 INSTANT REACTIVATE: Activating campaign {target_campaign['name']}")
+                        result = toggle_campaign_status(campaign_id, "ACTIVE", triggered_by_rule=True, rule_name=rule["name"])
+                        if result["success"]:
+                            print(f"✅ Campaign {target_campaign['name']} INSTANTLY reactivated by rule {rule['name']}")
+                        else:
+                            print(f"❌ Failed to reactivate campaign: {result.get('error')}")
+
+                    # Stop checking other rules since action was taken
+                    break
+
+    except Exception as e:
+        print(f"❌ Instant rule check error for campaign {campaign_id}: {e}")
+
 # ===============================
-# REVOLUTIONÄRE REGEL-API
+# RULE API
 # ===============================
 
 
@@ -1712,10 +1794,10 @@ def get_automation_status_api():
     username = session.get('username')
     status = get_automation_status(username)
     rules = load_rules_from_db(username)
-    
+
     # Check if automation should be running
     has_assignments = has_active_rule_assignments(username)
-    
+
     return jsonify({
         "success": True,
         "status": {
@@ -1727,6 +1809,52 @@ def get_automation_status_api():
             "has_assignments": has_assignments
         }
     })
+
+@app.route('/dashboard/api/campaigns/live-status', methods=['GET'])
+@login_required
+def get_live_campaign_status():
+    """Get live campaign status updates for real-time monitoring"""
+    try:
+        username = session.get('username')
+        user_data = get_user_data(username)
+        campaigns = user_data.get("campaigns", [])
+
+        # Get automation status
+        automation_status = get_automation_status(username)
+
+        # Return minimal data for fast updates (no instant rule check to avoid errors)
+        live_data = {
+            "campaigns": [
+                {
+                    "id": camp["id"],
+                    "name": camp["name"],
+                    "status": camp["status"],
+                    "spend": camp.get("spend", 0),
+                    "revenue": camp.get("revenue", 0),
+                    "conversions": camp.get("conversions", 0),
+                    "cpa": camp.get("cpa", 0),
+                    "last_updated": camp.get("last_updated", "")
+                }
+                for camp in campaigns
+            ],
+            "automation": {
+                "is_running": automation_status["is_running"],
+                "last_check": automation_status["last_check"],
+                "last_action_count": automation_status["last_action_count"]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+
+        return jsonify({
+            "success": True,
+            "data": live_data
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
 
 # ===============================
 # OPTIMIZED API ROUTES WITH CACHING
