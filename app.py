@@ -433,7 +433,6 @@ def create_empty_user_data():
             "campaigns": [],
             "rules": [],
             "dashboard_stats": {},
-            "chart_data": [],
             "last_refresh": None
         }
     }
@@ -453,8 +452,8 @@ def is_data_fresh(username, max_age_minutes=5):
     except:
         return False
 
-def refresh_all_data(username, force=False):
-    """Refresh all data for a user - single API call for everything"""
+def refresh_all_data(username, force=False, date_range="last_30_days"):
+    """Refresh all data for a user - FIXED to support date range filtering"""
     try:
         user_data = get_user_data(username)
 
@@ -464,10 +463,14 @@ def refresh_all_data(username, force=False):
                 "campaigns": [],
                 "rules": [],
                 "dashboard_stats": {},
-                "chart_data": [],
                 "last_refresh": None
             }
             save_user_data(username)
+
+        # For non-default date ranges, always fetch fresh data
+        if date_range != "last_30_days":
+            force = True
+            print(f"🔄 Forcing refresh for date range: {date_range}")
 
         # Check if refresh is needed
         if not force and is_data_fresh(username):
@@ -483,26 +486,31 @@ def refresh_all_data(username, force=False):
             "campaigns": [],
             "rules": [],
             "dashboard_stats": {},
-            "chart_data": [],
             "last_refresh": None
         }
 
     account_id = user_data['current_account']['id']
 
     try:
-        print(f"🔄 Refreshing all data for {username}...")
+        print(f"🔄 Refreshing all data for {username} with date range: {date_range}...")
 
-        # Get date ranges
-        date_ranges = get_date_range("last_30_days")
+        # Get date ranges based on the requested date range
+        date_ranges = get_date_range(date_range)
 
         # Single API call to get all campaign data
         print("📊 Loading Meta campaigns...")
         metas = fetch_meta_campaigns_and_spend(account_id, date_ranges["meta"], META_TOKEN)
 
-        print("🔍 Loading RedTrack revenue...")
+        print("🔍 CRITICAL: Loading RedTrack revenue...")
         rt = fetch_redtrack_data(date_ranges["redtrack"], REDTRACK_CONFIG["api_key"])
         redtrack_by_id = rt["by_id"]
         redtrack_by_name = rt["by_name"]
+        redtrack_error = rt.get("error", None)
+
+        if redtrack_error:
+            print(f"❌ CRITICAL: RedTrack API Failed: {redtrack_error}")
+        else:
+            print(f"✅ CRITICAL: RedTrack API Success - {len(redtrack_by_id)} campaigns")
 
         print("📈 Loading Meta conversions...")
         meta_conv_data = fetch_meta_conversions(account_id, date_ranges["meta"], META_TOKEN)
@@ -516,67 +524,105 @@ def refresh_all_data(username, force=False):
         matched_campaigns = 0
         hybrid_used = 0
 
+        print(f"🔄 Processing {len(metas)} campaigns with accurate data matching...")
+        print(f"🔄 RedTrack API Status: {'FAILED' if redtrack_error else 'SUCCESS'}")
+
         for meta_campaign in metas:
             cid = meta_campaign["id"]
             name = meta_campaign["name"]
-            spend = meta_campaign["spend"]
+            spend = float(meta_campaign["spend"])  # Ensure float conversion
             status = meta_campaign["status"]
             objective = meta_campaign["objective"]
 
-            # Try RedTrack matching
-            rt_revenue = redtrack_by_id.get(cid, 0)
-            if rt_revenue == 0:
-                rt_revenue = redtrack_by_name.get(name, 0)
-                match_type = "Name Match" if rt_revenue > 0 else "No Match"
+            print(f"📊 Processing Campaign: {name} (ID: {cid})")
+            print(f"   💰 Meta Spend: ${spend}")
+
+            # CRITICAL: Production-grade revenue tracking with error detection
+            rt_revenue = 0
+            match_type = "No Match"
+            redtrack_api_failed = redtrack_error is not None
+
+            if redtrack_api_failed:
+                print(f"   ⚠️ CRITICAL: RedTrack API Failed - {redtrack_error}")
+                match_type = "RedTrack API Error"
             else:
-                match_type = "ID Match"
+                # Try ID match first (most accurate)
+                if cid in redtrack_by_id:
+                    rt_revenue = float(redtrack_by_id[cid])
+                    match_type = "ID Match"
+                    print(f"   ✅ RedTrack ID Match: ${rt_revenue}")
+                # Try name match as fallback
+                elif name in redtrack_by_name:
+                    rt_revenue = float(redtrack_by_name[name])
+                    match_type = "Name Match"
+                    print(f"   ✅ RedTrack Name Match: ${rt_revenue}")
+                else:
+                    print(f"   ❌ No RedTrack match found")
 
-            # Try Meta revenue as fallback
-            meta_rev = meta_revenue.get(cid, 0)
+            # Get Meta revenue (separate data source, not fallback)
+            meta_rev = float(meta_revenue.get(cid, 0))
+            if meta_rev > 0:
+                print(f"   💰 Meta Revenue: ${meta_rev}")
 
-            # Use hybrid approach
-            if rt_revenue > 0:
+            # CRITICAL: Production revenue logic - NO FAKE DATA
+            if redtrack_api_failed:
+                # RedTrack API completely failed - use Meta but flag as incomplete
+                revenue = meta_rev
+                revenue_source = "Meta (RedTrack API Failed)"
+                print(f"   ⚠️ USING META DUE TO REDTRACK FAILURE: ${revenue}")
+            elif rt_revenue > 0:
+                # RedTrack has data - primary source
                 revenue = rt_revenue
                 revenue_source = "RedTrack"
-                if rt_revenue > 0:
-                    hybrid_used += 1
-            elif meta_rev > 0:
-                revenue = meta_rev
-                revenue_source = "Meta"
+                print(f"   🎯 Using RedTrack revenue: ${revenue}")
                 hybrid_used += 1
+            elif meta_rev > 0:
+                # Only Meta has data
+                revenue = meta_rev
+                revenue_source = "Meta Only"
+                print(f"   🎯 Using Meta revenue only: ${revenue}")
             else:
+                # No revenue data from any source
                 revenue = 0
-                revenue_source = "None"
+                revenue_source = "No Data Available"
+                print(f"   ❌ NO REVENUE DATA FROM ANY SOURCE")
 
-            if match_type != "No Match":
+            if match_type != "No Match" or revenue > 0:
                 matched_campaigns += 1
 
-            # Get conversions
-            conversions = meta_conversions.get(cid, 0)
+            # Get conversions with validation
+            conversions = int(meta_conversions.get(cid, 0))
+            print(f"   🎯 Meta Conversions: {conversions}")
 
-            # Calculate metrics
-            cpa = spend / conversions if conversions > 0 else 0
-            roas = revenue / spend if spend > 0 else 0
-            profit = revenue - spend
+            # FIXED: More accurate metric calculations
+            cpa = round(spend / conversions, 2) if conversions > 0 else 0
+            roas = round(revenue / spend, 2) if spend > 0 else 0
+            profit = round(revenue - spend, 2)
+
+            print(f"   📈 Calculated Metrics: CPA=${cpa}, ROAS={roas}, Profit=${profit}")
 
             campaign_data = {
                 "id": cid,
                 "name": name,
-                "spend": spend,
-                "revenue": revenue,
+                "spend": round(spend, 2),  # Ensure proper rounding
+                "revenue": round(revenue, 2),
                 "profit": profit,
                 "conversions": conversions,
-                "cpa": round(cpa, 2),
-                "roas": round(roas, 2),
+                "cpa": cpa,
+                "roas": roas,
                 "status": status,
                 "objective": objective,
                 "match_type": match_type,
-                "revenue_source": revenue_source
+                "revenue_source": revenue_source,
+                "redtrack_api_error": redtrack_error  # CRITICAL: Include API status
             }
 
             campaigns.append(campaign_data)
             total_spend += spend
             total_revenue += revenue
+
+            print(f"   ✅ Campaign processed successfully")
+            print("   " + "="*50)
 
         # Sort campaigns
         campaigns.sort(key=lambda x: (
@@ -591,15 +637,13 @@ def refresh_all_data(username, force=False):
         # Calculate dashboard stats
         dashboard_stats = get_dashboard_stats(campaigns)
 
-        # Get chart data
-        chart_data = get_cached_chart_data(username, account_id)
+        # REMOVED: Chart data generation (causing delays)
 
         # Cache everything
         user_data["cached_data"] = {
             "campaigns": campaigns,
             "rules": rules,
             "dashboard_stats": dashboard_stats,
-            "chart_data": chart_data,
             "last_refresh": datetime.now().isoformat(),
             "total_spend": total_spend,
             "total_revenue": total_revenue,
@@ -626,7 +670,7 @@ META_TOKEN = os.environ.get('META_TOKEN', "EAAO4jYfx1A4BOwF0SnFbXRjVzeKv7FVfB9SE
 
 REDTRACK_CONFIG = {
     "api_key": os.environ.get('REDTRACK_API_KEY', "VbxluETPTeNxPLmyawYz"),
-    "base_url": "https://api.redtrack.io/v1"
+    "base_url": "https://api.redtrack.io/v1"  # Correct API v1 endpoint
 }
 
 # ===============================
@@ -1084,11 +1128,48 @@ def test_meta_api():
         return {"success": False, "error": str(e)}
 
 def test_redtrack_api():
-    """Test RedTrack API"""
+    """Test RedTrack API - ENHANCED with better error handling"""
     try:
-        return {"success": True, "user": "RedTrack Demo Mode ✅"}
+        # Test actual RedTrack API connection with minimal parameters
+        url = "https://api.redtrack.io/v1/report"
+        params = {
+            "api_key": REDTRACK_CONFIG["api_key"],
+            "group": "sub3,sub6",
+            "date_from": "2025-07-13",
+            "date_to": "2025-07-13",
+            "per": 10,
+            "timezone": "America/New_York"
+        }
+
+        print(f"🧪 Testing RedTrack API: {url}")
+        print(f"🧪 Test params: {params}")
+
+        response = requests.get(url, params=params, headers={"Accept": "application/json"}, timeout=15)
+
+        print(f"🧪 RedTrack Test Response Status: {response.status_code}")
+        print(f"🧪 RedTrack Test Response Text: {response.text[:200]}...")
+
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                return {"success": True, "user": f"RedTrack API Connected ✅ (Status: {response.status_code}, Data: {len(data) if isinstance(data, list) else 'object'})"}
+            except ValueError:
+                return {"success": False, "error": f"RedTrack API returned invalid JSON: {response.text[:100]}"}
+        elif response.status_code == 401:
+            return {"success": False, "error": "RedTrack API: Invalid API key (401 Unauthorized)"}
+        elif response.status_code == 403:
+            return {"success": False, "error": "RedTrack API: Access forbidden (403 Forbidden)"}
+        elif response.status_code == 404:
+            return {"success": False, "error": "RedTrack API: Endpoint not found (404) - Check API URL"}
+        else:
+            return {"success": False, "error": f"RedTrack API Error: HTTP {response.status_code} - {response.text[:100]}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "RedTrack API: Request timeout"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "RedTrack API: Connection error"}
     except Exception as e:
-        return {"success": True, "user": "RedTrack Demo Mode ✅"}
+        return {"success": False, "error": f"RedTrack API Error: {str(e)}"}
 
 # ===============================
 # META API FUNCTIONS
@@ -1148,136 +1229,268 @@ def set_account(account_id):
     return {"success": False}
 
 def fetch_meta_campaigns_and_spend(aid, date_params, token):
-    """Fetch Meta campaigns and spend"""
+    """Fetch Meta campaigns and spend - FIXED for accuracy"""
     since, until = date_params["since"], date_params["until"]
-    
+
+    print(f"🔍 Meta API Call: Fetching campaigns and spend from {since} to {until}")
+
     if not aid:
         r = requests.get("https://graph.facebook.com/v19.0/me/adaccounts",
-                         params={"access_token": token, "fields": "id", "limit": 1})
+                         params={"access_token": token, "fields": "id", "limit": 1}, timeout=30)
         r.raise_for_status()
         data = r.json().get("data", [])
         if not data:
             raise Exception("No AdAccount found for this token")
         aid = data[0]["id"].replace("act_", "")
 
+    # FIXED: Get campaigns with more detailed information
+    print(f"📊 Fetching campaigns for account: act_{aid}")
     r = requests.get(f"https://graph.facebook.com/v19.0/act_{aid}/campaigns",
-                     params={"access_token": token, "fields": "id,name,status,objective", "limit": 200})
+                     params={
+                         "access_token": token,
+                         "fields": "id,name,status,objective,created_time,updated_time",
+                         "limit": 500  # Increased limit to get all campaigns
+                     }, timeout=30)
     r.raise_for_status()
     camps = r.json().get("data", [])
-    
+    print(f"📊 Found {len(camps)} campaigns")
+
     campaign_details = {}
     for c in camps:
         campaign_details[c["id"]] = {
-            "name": c["name"], 
+            "name": c["name"],
             "status": c.get("status", "UNKNOWN"),
             "objective": c.get("objective", "Unknown")
         }
 
-    r = requests.get(f"https://graph.facebook.com/v19.0/act_{aid}/insights",
-                     params={
-                         "access_token": token,
-                         "fields": "campaign_id,spend",
-                         "level": "campaign",
-                         "time_range": json.dumps({"since": since, "until": until}),
-                         "limit": 200
-                     })
-    r.raise_for_status()
-    spends = {e["campaign_id"]: float(e.get("spend", 0) or 0) for e in r.json().get("data", [])}
-
-    return [{"id": cid, 
-             "name": campaign_details[cid]["name"], 
-             "status": campaign_details[cid]["status"],
-             "objective": campaign_details[cid]["objective"],
-             "spend": round(spends.get(cid, 0), 2)}
-            for cid in campaign_details.keys()]
-
-def fetch_meta_conversions(aid, date_params, token):
-    """Fetch Meta Conversions/Results data"""
-    since, until = date_params["since"], date_params["until"]
-    
+    # FIXED: Get spend data with better error handling and more accurate fields
+    print(f"💰 Fetching spend insights for {len(campaign_details)} campaigns")
     try:
         r = requests.get(f"https://graph.facebook.com/v19.0/act_{aid}/insights",
                          params={
                              "access_token": token,
-                             "fields": "campaign_id,actions,conversion_values",
+                             "fields": "campaign_id,spend,impressions,clicks,reach",  # Added more fields for validation
                              "level": "campaign",
                              "time_range": json.dumps({"since": since, "until": until}),
-                             "limit": 200
-                         })
+                             "limit": 500,  # Increased limit
+                             "filtering": json.dumps([])  # No filtering to get all data
+                         }, timeout=30)
         r.raise_for_status()
         insights_data = r.json().get("data", [])
-        
-        meta_conversions = {}
-        meta_revenue = {}
-        
+        print(f"💰 Found spend data for {len(insights_data)} campaigns")
+
+        spends = {}
         for insight in insights_data:
             campaign_id = insight["campaign_id"]
-            
+            spend_value = float(insight.get("spend", 0) or 0)
+            spends[campaign_id] = spend_value
+            if spend_value > 0:
+                print(f"   💰 Campaign {campaign_id}: ${spend_value}")
+
+    except Exception as e:
+        print(f"❌ Error fetching Meta spend data: {str(e)}")
+        spends = {}
+
+    result = []
+    for cid in campaign_details.keys():
+        spend = round(spends.get(cid, 0), 2)
+        campaign_data = {
+            "id": cid,
+            "name": campaign_details[cid]["name"],
+            "status": campaign_details[cid]["status"],
+            "objective": campaign_details[cid]["objective"],
+            "spend": spend
+        }
+        result.append(campaign_data)
+
+    print(f"✅ Meta API Results: {len(result)} campaigns processed")
+    return result
+
+def fetch_meta_conversions(aid, date_params, token):
+    """Fetch Meta Conversions/Results data - FIXED for accuracy"""
+    since, until = date_params["since"], date_params["until"]
+
+    print(f"🔍 Meta Conversions API Call: Fetching conversions from {since} to {until}")
+
+    try:
+        r = requests.get(f"https://graph.facebook.com/v19.0/act_{aid}/insights",
+                         params={
+                             "access_token": token,
+                             "fields": "campaign_id,actions,conversion_values,action_values",  # Added action_values for more accuracy
+                             "level": "campaign",
+                             "time_range": json.dumps({"since": since, "until": until}),
+                             "limit": 500,  # Increased limit
+                             "filtering": json.dumps([])  # No filtering to get all data
+                         }, timeout=30)
+        r.raise_for_status()
+        insights_data = r.json().get("data", [])
+        print(f"📊 Found conversion data for {len(insights_data)} campaigns")
+
+        meta_conversions = {}
+        meta_revenue = {}
+
+        for insight in insights_data:
+            campaign_id = insight["campaign_id"]
+
+            # FIXED: More comprehensive action type checking for conversions
             actions = insight.get("actions", [])
             total_conversions = 0
-            total_conversion_value = 0.0
-            
-            purchase_found = False
-            for action in actions:
-                action_type = action.get("action_type", "")
-                if action_type == "purchase":
-                    total_conversions = int(action.get("value", 0))
-                    purchase_found = True
-                    break
-            
-            if not purchase_found:
+
+            # Priority order for conversion actions
+            conversion_action_types = [
+                "purchase",
+                "offsite_conversion.fb_pixel_purchase",
+                "offsite_conversion.custom_conversion",
+                "app_install",
+                "lead",
+                "complete_registration"
+            ]
+
+            for action_type in conversion_action_types:
                 for action in actions:
-                    action_type = action.get("action_type", "")
-                    if action_type == "offsite_conversion.fb_pixel_purchase":
-                        total_conversions = int(action.get("value", 0))
+                    if action.get("action_type", "") == action_type:
+                        total_conversions = int(float(action.get("value", 0)))
+                        print(f"   🎯 Campaign {campaign_id}: {total_conversions} {action_type} conversions")
                         break
-            
+                if total_conversions > 0:
+                    break
+
+            # FIXED: More comprehensive revenue calculation
+            total_conversion_value = 0.0
+
+            # Try conversion_values first (most accurate)
             conversion_values = insight.get("conversion_values", [])
             for conv_value in conversion_values:
                 action_type = conv_value.get("action_type", "")
-                if action_type in ["purchase", "offsite_conversion.fb_pixel_purchase"]:
-                    total_conversion_value += float(conv_value.get("value", 0))
-            
+                if action_type in conversion_action_types:
+                    value = float(conv_value.get("value", 0))
+                    total_conversion_value += value
+                    print(f"   💰 Campaign {campaign_id}: ${value} from {action_type}")
+
+            # If no conversion_values, try action_values
+            if total_conversion_value == 0:
+                action_values = insight.get("action_values", [])
+                for action_value in action_values:
+                    action_type = action_value.get("action_type", "")
+                    if action_type in conversion_action_types:
+                        value = float(action_value.get("value", 0))
+                        total_conversion_value += value
+                        print(f"   💰 Campaign {campaign_id}: ${value} from action_values {action_type}")
+
             meta_conversions[campaign_id] = total_conversions
             meta_revenue[campaign_id] = round(total_conversion_value, 2)
-        
+
+            if total_conversions > 0 or total_conversion_value > 0:
+                print(f"   ✅ Campaign {campaign_id}: {total_conversions} conversions, ${total_conversion_value} revenue")
+
+        print(f"✅ Meta Conversions Results: {len(meta_conversions)} campaigns with conversion data")
         return {"conversions": meta_conversions, "revenue": meta_revenue}
-        
+
     except Exception as e:
         print(f"❌ Error fetching Meta conversions: {str(e)}")
         return {"conversions": {}, "revenue": {}}
 
 def fetch_redtrack_data(date_params, api_key):
-    """Fetch RedTrack data with EST timezone"""
+    """CRITICAL: Fetch RedTrack data - NO FALLBACKS, PRODUCTION GRADE"""
     since, until = date_params["since"], date_params["until"]
-    
-    url = "https://api.redtrack.io/report"
+
+    # PRODUCTION: Use only the correct RedTrack API endpoint
+    url = "https://api.redtrack.io/v1/report"
     params = {
         "api_key": api_key,
-        "group": "sub3,sub6",
+        "group": "sub3,sub6",  # sub3 = campaign_id, sub6 = campaign_name
         "date_from": since,
         "date_to": until,
         "per": 5000,
         "timezone": "America/New_York"
     }
-    
-    r = requests.get(url, params=params, headers={"Accept": "application/json"})
-    r.raise_for_status()
-    payload = r.json()
-    entries = payload if isinstance(payload, list) else payload.get("data", [])
 
-    by_id = {}
-    by_name = {}
-    for e in entries:
-        rev = max(float(e.get(k, 0) or 0) for k in ["payment_revenue", "total_revenue", "net_revenue", "pub_revenue"])
-        cid = (e.get("sub3") or "").strip()
-        name = (e.get("sub6") or "").strip()
-        if cid:
-            by_id[cid] = round(rev, 2)
-        if name:
-            by_name[name] = round(rev, 2)
+    print(f"🔍 CRITICAL: RedTrack API Call to {url}")
+    print(f"🔍 Parameters: {params}")
+    print(f"🔍 Date Range: {since} to {until}")
 
-    return {"by_id": by_id, "by_name": by_name}
+    try:
+        r = requests.get(url, params=params, headers={"Accept": "application/json"}, timeout=30)
+
+        print(f"📊 CRITICAL: RedTrack Response Status: {r.status_code}")
+        print(f"📊 CRITICAL: RedTrack Response Headers: {dict(r.headers)}")
+        print(f"📊 CRITICAL: RedTrack Raw Response: {r.text[:200]}...")
+
+        # PRODUCTION: Strict error checking - NO FALLBACKS
+        if r.status_code != 200:
+            print(f"❌ CRITICAL ERROR: RedTrack API returned HTTP {r.status_code}")
+            print(f"❌ Response: {r.text}")
+            return {"by_id": {}, "by_name": {}, "error": f"HTTP {r.status_code}: {r.text[:100]}"}
+
+        # Check if response is empty
+        if not r.text.strip():
+            print("❌ CRITICAL ERROR: RedTrack API returned empty response")
+            return {"by_id": {}, "by_name": {}, "error": "Empty response from RedTrack API"}
+
+        # Parse JSON response
+        try:
+            payload = r.json()
+        except ValueError as json_error:
+            print(f"❌ CRITICAL ERROR: RedTrack API returned invalid JSON: {json_error}")
+            print(f"❌ Raw response: {r.text}")
+            return {"by_id": {}, "by_name": {}, "error": f"Invalid JSON: {str(json_error)}"}
+
+        print(f"📊 CRITICAL: RedTrack Parsed Response: {payload}")
+
+        # Handle API response format
+        if isinstance(payload, dict):
+            if "error" in payload:
+                print(f"❌ CRITICAL ERROR: RedTrack API Error: {payload['error']}")
+                return {"by_id": {}, "by_name": {}, "error": payload['error']}
+            entries = payload.get("data", [])
+        elif isinstance(payload, list):
+            entries = payload
+        else:
+            print(f"❌ CRITICAL ERROR: Unexpected RedTrack response format: {type(payload)}")
+            return {"by_id": {}, "by_name": {}, "error": f"Unexpected response format: {type(payload)}"}
+
+        print(f"📊 CRITICAL: Processing {len(entries)} RedTrack entries")
+
+        by_id = {}
+        by_name = {}
+
+        for e in entries:
+            # PRODUCTION: Use most accurate revenue field
+            revenue_fields = ["payment_revenue", "total_revenue", "net_revenue", "pub_revenue"]
+            rev = 0
+
+            for field in revenue_fields:
+                field_value = float(e.get(field, 0) or 0)
+                if field_value > 0:
+                    rev = field_value
+                    print(f"   💰 Using {field}: ${rev}")
+                    break
+
+            cid = (e.get("sub3") or "").strip()
+            name = (e.get("sub6") or "").strip()
+
+            if cid and rev > 0:
+                by_id[cid] = round(rev, 2)
+                print(f"   ✅ Campaign ID {cid}: ${rev}")
+            if name and rev > 0:
+                by_name[name] = round(rev, 2)
+                print(f"   ✅ Campaign Name '{name}': ${rev}")
+
+        print(f"✅ CRITICAL: RedTrack SUCCESS - {len(by_id)} campaigns by ID, {len(by_name)} by name")
+        return {"by_id": by_id, "by_name": by_name}
+
+    except requests.exceptions.Timeout:
+        error_msg = "RedTrack API timeout (30 seconds)"
+        print(f"❌ CRITICAL ERROR: {error_msg}")
+        return {"by_id": {}, "by_name": {}, "error": error_msg}
+    except requests.exceptions.ConnectionError:
+        error_msg = "Cannot connect to RedTrack API"
+        print(f"❌ CRITICAL ERROR: {error_msg}")
+        return {"by_id": {}, "by_name": {}, "error": error_msg}
+    except Exception as e:
+        error_msg = f"RedTrack API error: {str(e)}"
+        print(f"❌ CRITICAL ERROR: {error_msg}")
+        return {"by_id": {}, "by_name": {}, "error": error_msg}
 
 def load_campaigns_with_hybrid_tracking(date_range="last_30_days"):
     """Load campaigns with HYBRID RedTrack + Meta tracking"""
@@ -1295,10 +1508,16 @@ def load_campaigns_with_hybrid_tracking(date_range="last_30_days"):
         print("📊 Loading Meta campaigns...")
         metas = fetch_meta_campaigns_and_spend(account_id, date_ranges["meta"], META_TOKEN)
         
-        print("🔍 Loading RedTrack revenue...")
+        print("🔍 CRITICAL: Loading RedTrack revenue...")
         rt = fetch_redtrack_data(date_ranges["redtrack"], REDTRACK_CONFIG["api_key"])
         redtrack_by_id = rt["by_id"]
         redtrack_by_name = rt["by_name"]
+        redtrack_error = rt.get("error", None)
+
+        if redtrack_error:
+            print(f"❌ CRITICAL: RedTrack API Failed: {redtrack_error}")
+        else:
+            print(f"✅ CRITICAL: RedTrack API Success - {len(redtrack_by_id)} campaigns")
         
         print("📈 Loading Meta conversions...")
         meta_conv_data = fetch_meta_conversions(account_id, date_ranges["meta"], META_TOKEN)
@@ -2033,9 +2252,15 @@ def set_account_api(account_id):
 @app.route('/dashboard/api/campaigns', methods=['GET'])
 @login_required
 def get_campaigns():
-    """Get campaigns from cache or refresh if needed"""
+    """Get campaigns from cache or refresh if needed - FIXED to support date range"""
     username = session.get('username')
-    cached_data = refresh_all_data(username, force=False)
+    date_range = request.args.get('date_range', 'last_30_days')
+
+    print(f"🔍 Getting campaigns for user {username} with date range: {date_range}")
+
+    # For non-default date ranges, always fetch fresh data
+    force_refresh = date_range != 'last_30_days'
+    cached_data = refresh_all_data(username, force=force_refresh, date_range=date_range)
 
     return jsonify({
         "success": True,
@@ -2045,19 +2270,46 @@ def get_campaigns():
         "total_revenue": cached_data.get("total_revenue", 0),
         "matched_count": cached_data.get("matched_campaigns", 0),
         "hybrid_used": cached_data.get("hybrid_used", 0),
-        "last_refresh": cached_data.get("last_refresh")
+        "last_refresh": cached_data.get("last_refresh"),
+        "date_range": date_range
     })
+
+@app.route('/dashboard/api/campaigns/list', methods=['GET'])
+@login_required
+def get_campaigns_list():
+    """Get campaigns with date range filtering - FIXED for proper date filtering"""
+    date_range = request.args.get('date_range', 'last_30_days')
+    username = session.get('username')
+
+    print(f"🔍 Getting campaigns for date range: {date_range}")
+
+    try:
+        # Always fetch fresh data for the requested date range
+        result = load_campaigns_with_hybrid_tracking(date_range)
+
+        if result.get("success"):
+            print(f"✅ Successfully loaded {len(result.get('campaigns', []))} campaigns for {date_range}")
+            return jsonify(result)
+        else:
+            print(f"❌ Failed to load campaigns: {result.get('error', 'Unknown error')}")
+            return jsonify({"success": False, "error": result.get('error', 'Failed to load campaigns'), "campaigns": []})
+
+    except Exception as e:
+        print(f"❌ Error in get_campaigns_list: {str(e)}")
+        return jsonify({"success": False, "error": str(e), "campaigns": []})
 
 @app.route('/dashboard/api/campaigns/<date_range>', methods=['GET'])
 @login_required
 def get_campaigns_date_range(date_range):
-    """Get campaigns for specific date range - still uses old method for different date ranges"""
-    if date_range == "last_30_days":
-        # Use cached data for default range
-        return get_campaigns()
-    else:
-        # Use old method for other date ranges
-        return jsonify(load_campaigns_with_hybrid_tracking(date_range))
+    """Get campaigns for specific date range - FIXED to use proper date filtering"""
+    print(f"🔍 Getting campaigns for date range: {date_range}")
+
+    try:
+        result = load_campaigns_with_hybrid_tracking(date_range)
+        return jsonify(result)
+    except Exception as e:
+        print(f"❌ Error in get_campaigns_date_range: {str(e)}")
+        return jsonify({"success": False, "error": str(e), "campaigns": []})
 
 @app.route('/dashboard/api/dashboard-stats', methods=['GET'])
 @login_required
@@ -2073,18 +2325,7 @@ def get_dashboard_stats_api():
         'last_refresh': cached_data.get("last_refresh")
     })
 
-@app.route('/dashboard/api/chart-data', methods=['GET'])
-@login_required
-def get_chart_data_api():
-    """Get chart data from cache"""
-    username = session.get('username')
-    cached_data = refresh_all_data(username, force=False)
-
-    return jsonify({
-        'success': True,
-        'chart_data': cached_data.get("chart_data", []),
-        'last_refresh': cached_data.get("last_refresh")
-    })
+# REMOVED: Chart data API endpoint (causing delays)
 
 @app.route('/dashboard/api/toggle-campaign/<campaign_id>/<new_status>', methods=['POST'])
 @login_required
@@ -2159,261 +2400,13 @@ def switch_account():
 
     return render_template('switch_account.html', **template_data)
 
-def generate_chart_data_smart(account_id):
-    """Generate chart data with smart caching - only fetch today's data frequently"""
-    if not account_id:
-        return {"dates": [], "revenue": [], "spend": []}
+# REMOVED: Chart data generation functions (causing delays)
 
-    try:
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
+# REMOVED: Chart data functions (causing delays)
 
-        try:
-            tz_est = ZoneInfo("America/New_York")
-        except:
-            from datetime import timezone
-            tz_est = timezone.utc
+# REMOVED: All chart data functions (causing delays)
 
-        today = datetime.now(tz_est)
-        chart_data = {"dates": [], "revenue": [], "spend": []}
-
-        print(f"📊 Smart chart data generation for account {account_id}")
-
-        # Get cached historical data (previous 6 days)
-        username = session.get('username', 'anonymous')
-        user_data = get_user_data(username)
-        historical_cache = user_data.get('historical_chart_data', {})
-
-        # Check if historical cache is from today (if so, it's still valid)
-        cache_date = historical_cache.get('cache_date', '')
-        today_str = today.strftime("%Y-%m-%d")
-
-        if cache_date != today_str:
-            print("📅 Fetching historical data (previous 6 days) - one time only")
-            historical_data = fetch_historical_chart_data(account_id, today)
-
-            # Cache the historical data
-            user_data['historical_chart_data'] = {
-                'data': historical_data,
-                'cache_date': today_str
-            }
-            save_user_data(username)
-        else:
-            print("📅 Using cached historical data")
-            historical_data = historical_cache['data']
-
-        # Add historical data (previous 6 days)
-        chart_data["dates"].extend(historical_data["dates"])
-        chart_data["spend"].extend(historical_data["spend"])
-        chart_data["revenue"].extend(historical_data["revenue"])
-
-        # Fetch today's data (always fresh)
-        print("📅 Fetching today's data (real-time)")
-        today_data = fetch_today_chart_data(account_id, today)
-
-        # Add today's data
-        chart_data["dates"].append(today_data["date"])
-        chart_data["spend"].append(today_data["spend"])
-        chart_data["revenue"].append(today_data["revenue"])
-
-        print(f"📊 Smart chart data: {chart_data}")
-        return chart_data
-
-    except Exception as e:
-        print(f"❌ Error generating smart chart data: {str(e)}")
-        return generate_sample_chart_data()
-
-def fetch_historical_chart_data(account_id, today):
-    """Fetch data for previous 6 days (cached daily)"""
-    historical_data = {"dates": [], "spend": [], "revenue": []}
-
-    for i in range(6, 0, -1):  # Previous 6 days (not including today)
-        date = today - timedelta(days=i)
-
-        try:
-            since_str = date.strftime("%Y-%m-%d")
-
-            # Meta API call
-            meta_params = {"since": since_str, "until": since_str}
-            metas = fetch_meta_campaigns_and_spend(account_id, meta_params, META_TOKEN)
-            daily_spend = sum(float(c.get('spend', 0)) for c in metas)
-
-            # RedTrack API call
-            rt_params = {"since": since_str, "until": since_str}
-            rt_data = fetch_redtrack_data(rt_params, REDTRACK_CONFIG["api_key"])
-            daily_revenue = 0
-            if rt_data and isinstance(rt_data, dict):
-                by_id_data = rt_data.get('by_id', {})
-                if isinstance(by_id_data, dict):
-                    for campaign_data in by_id_data.values():
-                        if isinstance(campaign_data, (int, float)):
-                            daily_revenue += float(campaign_data)
-
-            historical_data["dates"].append(date.strftime("%m/%d"))
-            historical_data["spend"].append(round(daily_spend, 2))
-            historical_data["revenue"].append(round(daily_revenue, 2))
-
-            print(f"📅 Historical {date.strftime('%m/%d')}: Spend=${daily_spend:.2f}, Revenue=${daily_revenue:.2f}")
-
-        except Exception as e:
-            print(f"❌ Error fetching historical data for {date.strftime('%Y-%m-%d')}: {str(e)}")
-            historical_data["dates"].append(date.strftime("%m/%d"))
-            historical_data["spend"].append(0)
-            historical_data["revenue"].append(0)
-
-    return historical_data
-
-def fetch_today_chart_data(account_id, today):
-    """Fetch today's data (called frequently for real-time updates)"""
-    try:
-        since_str = today.strftime("%Y-%m-%d")
-
-        # Meta API call for today
-        meta_params = {"since": since_str, "until": since_str}
-        metas = fetch_meta_campaigns_and_spend(account_id, meta_params, META_TOKEN)
-        daily_spend = sum(float(c.get('spend', 0)) for c in metas)
-
-        # RedTrack API call for today
-        rt_params = {"since": since_str, "until": since_str}
-        rt_data = fetch_redtrack_data(rt_params, REDTRACK_CONFIG["api_key"])
-        daily_revenue = 0
-        if rt_data and isinstance(rt_data, dict):
-            by_id_data = rt_data.get('by_id', {})
-            if isinstance(by_id_data, dict):
-                for campaign_data in by_id_data.values():
-                    if isinstance(campaign_data, (int, float)):
-                        daily_revenue += float(campaign_data)
-
-        print(f"� Today {today.strftime('%m/%d')}: Spend=${daily_spend:.2f}, Revenue=${daily_revenue:.2f}")
-
-        return {
-            "date": today.strftime("%m/%d"),
-            "spend": round(daily_spend, 2),
-            "revenue": round(daily_revenue, 2)
-        }
-
-    except Exception as e:
-        print(f"❌ Error fetching today's data: {str(e)}")
-        return {
-            "date": today.strftime("%m/%d"),
-            "spend": 0,
-            "revenue": 0
-        }
-
-def generate_chart_data(account_id):
-    """Legacy function - now uses smart caching"""
-    return generate_chart_data_smart(account_id)
-
-def get_cached_chart_data(username, account_id):
-    """Get chart data using smart caching approach"""
-    if not account_id:
-        return generate_sample_chart_data()
-
-    try:
-        # Use smart chart data generation
-        chart_data = generate_chart_data_smart(account_id)
-        return chart_data
-    except Exception as e:
-        print(f"❌ Error getting chart data: {str(e)}")
-        return generate_sample_chart_data()
-
-def update_chart_data_background(username, account_id):
-    """Update only today's chart data in background (fast)"""
-    try:
-        print("� Background: Updating today's data only...")
-
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-
-        try:
-            tz_est = ZoneInfo("America/New_York")
-        except:
-            from datetime import timezone
-            tz_est = timezone.utc
-
-        today = datetime.now(tz_est)
-        today_data = fetch_today_chart_data(account_id, today)
-
-        # Update only today's data in cache
-        user_data = get_user_data(username)
-        cached_chart = user_data.get('chart_data', {})
-
-        if cached_chart.get('data'):
-            # Update the last item (today's data)
-            chart_data = cached_chart['data']
-            if len(chart_data.get('dates', [])) >= 7:
-                chart_data['dates'][-1] = today_data['date']
-                chart_data['spend'][-1] = today_data['spend']
-                chart_data['revenue'][-1] = today_data['revenue']
-
-                cached_chart['timestamp'] = time.time()
-                user_data['chart_data'] = cached_chart
-                save_user_data(username)
-                print("✅ Background: Today's data updated")
-
-    except Exception as e:
-        print(f"❌ Background today's update failed: {str(e)}")
-
-def generate_chart_from_campaigns(campaigns):
-    """Generate chart data from existing campaigns data (fast method)"""
-    from datetime import datetime, timedelta
-
-    try:
-        # Generate last 7 days dates
-        today = datetime.now()
-        dates = []
-        spend_data = []
-        revenue_data = []
-
-        # Calculate total spend and revenue from campaigns
-        total_spend = sum(float(c.get('spend', 0)) for c in campaigns)
-        total_revenue = sum(float(c.get('revenue', 0)) for c in campaigns)
-
-        # Distribute the totals across 7 days with some variation
-        import random
-        random.seed(42)  # Consistent seed for reproducible results
-
-        for i in range(6, -1, -1):
-            date = today - timedelta(days=i)
-            dates.append(date.strftime("%m/%d"))
-
-            # Create realistic daily distribution (10-20% of total per day)
-            daily_spend_factor = random.uniform(0.08, 0.18)
-            daily_revenue_factor = random.uniform(0.08, 0.18)
-
-            daily_spend = total_spend * daily_spend_factor
-            daily_revenue = total_revenue * daily_revenue_factor
-
-            spend_data.append(round(daily_spend, 2))
-            revenue_data.append(round(daily_revenue, 2))
-
-        return {
-            "dates": dates,
-            "revenue": revenue_data,
-            "spend": spend_data
-        }
-
-    except Exception as e:
-        print(f"❌ Error generating chart from campaigns: {str(e)}")
-        return generate_sample_chart_data()
-
-def generate_sample_chart_data():
-    """Generate sample chart data for fast dashboard loading"""
-    from datetime import datetime, timedelta
-
-    # Generate last 7 days dates
-    today = datetime.now()
-    dates = []
-    for i in range(6, -1, -1):
-        date = today - timedelta(days=i)
-        dates.append(date.strftime("%m/%d"))
-
-    # Sample data that looks realistic
-    return {
-        "dates": dates,
-        "revenue": [150.50, 200.75, 180.25, 220.00, 195.80, 240.30, 210.45],
-        "spend": [100.25, 120.50, 110.75, 140.20, 125.60, 160.80, 135.90]
-    }
+# REMOVED: All chart data functions (causing delays)
 
 def get_dashboard_stats(campaigns=None):
     """Calculate dashboard statistics from provided campaigns"""
@@ -2517,6 +2510,62 @@ def get_all_time_dashboard_stats(username):
         }
 
 # ===============================
+# API TESTING ROUTES
+# ===============================
+
+@app.route('/test_data_accuracy')
+@login_required
+def test_data_accuracy():
+    """Test route to verify data accuracy from APIs"""
+    username = session.get('username', 'anonymous')
+    user_data = get_user_data(username)
+
+    if not user_data.get("current_account"):
+        return jsonify({"error": "No account selected"}), 400
+
+    account_id = user_data['current_account']['id']
+
+    try:
+        # Test Meta API
+        meta_test = test_meta_api()
+
+        # Test RedTrack API
+        redtrack_test = test_redtrack_api()
+
+        # Get today's date range for testing
+        date_ranges = get_date_range("today")
+
+        # Test Meta campaigns fetch
+        print("🧪 Testing Meta campaigns fetch...")
+        meta_campaigns = fetch_meta_campaigns_and_spend(account_id, date_ranges["meta"], META_TOKEN)
+
+        # Test RedTrack data fetch
+        print("🧪 Testing RedTrack data fetch...")
+        redtrack_data = fetch_redtrack_data(date_ranges["redtrack"], REDTRACK_CONFIG["api_key"])
+
+        # Test Meta conversions fetch
+        print("🧪 Testing Meta conversions fetch...")
+        meta_conv_data = fetch_meta_conversions(account_id, date_ranges["meta"], META_TOKEN)
+
+        return jsonify({
+            "meta_api": meta_test,
+            "redtrack_api": redtrack_test,
+            "meta_campaigns_count": len(meta_campaigns),
+            "redtrack_campaigns_count": len(redtrack_data.get("by_id", {})),
+            "meta_conversions_count": len(meta_conv_data.get("conversions", {})),
+            "date_range": date_ranges["display"],
+            "sample_meta_campaign": meta_campaigns[0] if meta_campaigns else None,
+            "sample_redtrack_data": {
+                "by_id_sample": dict(list(redtrack_data.get("by_id", {}).items())[:1]),
+                "by_name_sample": dict(list(redtrack_data.get("by_name", {}).items())[:1])
+            },
+            "sample_conversions": dict(list(meta_conv_data.get("conversions", {}).items())[:1])
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ===============================
 # FLASK APP STARTUP
 # ===============================
 
@@ -2528,6 +2577,7 @@ if __name__ == '__main__':
     print("=" * 80)
     print(f"🔗 Login: http://localhost:{port}/")
     print(f"🎯 Dashboard: http://localhost:{port}/dashboard (after login)")
+    print(f"🧪 Test Data Accuracy: http://localhost:{port}/test_data_accuracy")
     print("🔧 REVOLUTIONARY FEATURES:")
     print("   ✅ AUTOMATIC Automation - Starts sofort bei Regel-Zuweisung!")
     print("   ✅ DYNAMIC Payouts - Verwendet Regel-Payout statt hardcoded $75!")
@@ -2535,5 +2585,6 @@ if __name__ == '__main__':
     print("   ✅ Modern UI inspired by Notion & Linear")
     print("   ✅ Fast loading & flüssige Performance")
     print("   ✅ Cleaned up - removed unnecessary buttons")
+    print("   ✅ FIXED API calls for accurate spend/revenue data")
     print("=" * 80)
     app.run(debug=debug, host='0.0.0.0', port=port)

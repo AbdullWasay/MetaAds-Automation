@@ -117,6 +117,26 @@
         background: linear-gradient(135deg, #8b5cf6, #7c3aed);
     }
 
+    /* CRITICAL: API Status Indicator Styling */
+    .summary-card.api-status {
+        border-left: 4px solid #ef4444;
+        background: #fef2f2;
+        animation: pulse-error 2s infinite;
+    }
+
+    .summary-card.api-status::before {
+        background: linear-gradient(90deg, #ef4444, #dc2626);
+    }
+
+    .summary-card.api-status .summary-icon {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+
+    @keyframes pulse-error {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.8; }
+    }
+
     .summary-content {
         width: 100%;
     }
@@ -903,20 +923,20 @@
 {% block content %}
 <div class="campaigns-header">
     <div class="campaigns-filters">
-        <select class="filter-select" id="statusFilter" onchange="filterCampaigns()">
+        <select class="filter-select" id="statusFilter" onchange="handleFilterChange('status')">
             <option value="">All Statuses</option>
             <option value="ACTIVE">Active</option>
             <option value="PAUSED">Paused</option>
         </select>
 
-        <select class="filter-select" id="dateFilter" onchange="loadCampaigns()">
+        <select class="filter-select" id="dateFilter" onchange="handleFilterChange('date')">
             <option value="last_30_days">Last 30 Days</option>
             <option value="last_7_days">Last 7 Days</option>
             <option value="today">Today</option>
             <option value="yesterday">Yesterday</option>
         </select>
 
-        <select class="filter-select" id="matchFilter" onchange="filterCampaigns()">
+        <select class="filter-select" id="matchFilter" onchange="handleFilterChange('match')">
             <option value="">All Tracking</option>
             <option value="ID Match">ID Match</option>
             <option value="Name Match">Name Match</option>
@@ -981,6 +1001,18 @@
             <div class="summary-period" id="roasPeriodLabel">Selected period</div>
         </div>
     </div>
+
+    <!-- CRITICAL: RedTrack API Status Indicator -->
+    <div class="summary-card api-status" id="redtrackStatus" style="display: none;">
+        <div class="summary-icon">
+            <i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i>
+        </div>
+        <div class="summary-content">
+            <div class="summary-title">RedTrack API</div>
+            <div class="summary-value" style="color: #ef4444; font-size: 14px;">NOT CONNECTED</div>
+            <div class="summary-period">Revenue data incomplete</div>
+        </div>
+    </div>
 </div>
 
 <!-- Total Campaigns Count -->
@@ -1019,13 +1051,17 @@
     let autoRefreshInterval = null;
 
     document.addEventListener('DOMContentLoaded', function() {
+        // ENHANCED: Restore filter state on page load
+        console.log('🔄 Restoring filter state on page load...');
+        const restoredFilters = restoreFilterState();
+
         // Set up refresh button
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', () => refreshAllData(true));
         }
 
-        // Load campaigns using optimized method
+        // Load campaigns using optimized method (will use restored date filter)
         loadCampaignsOptimized();
 
         // Start auto-refresh every 30 seconds with filter preservation
@@ -1120,43 +1156,52 @@
             });
     }
 
-    // Auto-refresh with filter preservation - updates values automatically every 30 seconds
+    // ENHANCED: Auto-refresh with ALL filter preservation
     function autoRefreshWithFilters() {
-        // Store current filter values
+        // Store current filter values BEFORE making any API calls
         const currentFilters = {
             status: document.getElementById('statusFilter').value,
             match: document.getElementById('matchFilter').value,
             date: document.getElementById('dateFilter').value
         };
 
-        console.log('🔄 Starting auto-refresh...');
+        console.log('🔄 Starting auto-refresh with ALL filters preserved:', currentFilters);
 
-        // Use the reliable campaigns list endpoint for consistent updates
+        // Use the campaigns list endpoint with proper date range parameter
         fetch(`/dashboard/api/campaigns/list?date_range=${currentFilters.date}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     const newCampaigns = data.campaigns || [];
-                    console.log(`📊 Received ${newCampaigns.length} campaigns from API`);
+                    console.log(`📊 Received ${newCampaigns.length} campaigns from API for ${currentFilters.date}`);
 
                     // Update global campaigns data
                     allCampaigns = newCampaigns;
 
-                    // Update campaign values in the table
+                    // CRITICAL: Restore ALL filter values IMMEDIATELY after data update
+                    const statusFilter = document.getElementById('statusFilter');
+                    const matchFilter = document.getElementById('matchFilter');
+                    const dateFilter = document.getElementById('dateFilter');
+
+                    if (statusFilter) statusFilter.value = currentFilters.status;
+                    if (matchFilter) matchFilter.value = currentFilters.match;
+                    if (dateFilter) dateFilter.value = currentFilters.date;
+
+                    // Update campaign values in the table (but don't render yet)
                     updateCampaignValues(newCampaigns);
 
-                    // Update campaign stats
-                    updateCampaignStats(newCampaigns);
+                    // Update period labels to match current date filter
+                    updatePeriodLabels();
 
-                    // Restore filter values after update
-                    document.getElementById('statusFilter').value = currentFilters.status;
-                    document.getElementById('matchFilter').value = currentFilters.match;
-                    document.getElementById('dateFilter').value = currentFilters.date;
+                    // IMPORTANT: Apply filters AFTER restoring filter values
+                    // This ensures the correct campaigns are shown based on ALL filters
+                    applyAllFilters();
 
-                    // Reapply filters to show correct campaigns
-                    filterCampaigns();
+                    // Update campaign stats based on FILTERED campaigns
+                    const filteredCampaigns = getFilteredCampaigns();
+                    updateCampaignStats(filteredCampaigns);
 
-                    console.log(`✅ Auto-refresh completed - updated ${newCampaigns.length} campaigns`);
+                    console.log(`✅ Auto-refresh completed - ${newCampaigns.length} total campaigns, showing filtered results for: Status=${currentFilters.status || 'All'}, Match=${currentFilters.match || 'All'}, Date=${currentFilters.date}`);
                 } else {
                     console.error('❌ Auto-refresh failed:', data.error);
                 }
@@ -1164,6 +1209,62 @@
             .catch(error => {
                 console.error('❌ Auto-refresh error:', error);
             });
+    }
+
+    // Helper function to get currently filtered campaigns
+    function getFilteredCampaigns() {
+        const statusFilter = document.getElementById('statusFilter').value;
+        const matchFilter = document.getElementById('matchFilter').value;
+
+        let filteredCampaigns = allCampaigns;
+
+        if (statusFilter) {
+            filteredCampaigns = filteredCampaigns.filter(c => c.status === statusFilter);
+        }
+
+        if (matchFilter) {
+            filteredCampaigns = filteredCampaigns.filter(c => c.match_type === matchFilter);
+        }
+
+        return filteredCampaigns;
+    }
+
+    // ENHANCED: Filter persistence functions
+    function saveFilterState() {
+        const filterState = {
+            status: document.getElementById('statusFilter').value,
+            match: document.getElementById('matchFilter').value,
+            date: document.getElementById('dateFilter').value
+        };
+
+        localStorage.setItem('campaignFilters', JSON.stringify(filterState));
+        console.log('💾 Filter state saved:', filterState);
+    }
+
+    function restoreFilterState() {
+        try {
+            const savedFilters = localStorage.getItem('campaignFilters');
+            if (savedFilters) {
+                const filterState = JSON.parse(savedFilters);
+
+                // Restore filter values
+                if (filterState.status !== undefined) {
+                    document.getElementById('statusFilter').value = filterState.status;
+                }
+                if (filterState.match !== undefined) {
+                    document.getElementById('matchFilter').value = filterState.match;
+                }
+                if (filterState.date !== undefined) {
+                    document.getElementById('dateFilter').value = filterState.date;
+                }
+
+                console.log('🔄 Filter state restored:', filterState);
+                return filterState;
+            }
+        } catch (error) {
+            console.error('❌ Error restoring filter state:', error);
+        }
+        return null;
     }
 
     // Fast live update function for real-time status changes
@@ -1289,28 +1390,108 @@
         console.log('✅ Campaign values updated successfully');
     }
 
-    // Update campaign stats in header
+    // ENHANCED: Update campaign stats in header with spend/revenue totals
     function updateCampaignStats(campaigns) {
         const totalCampaigns = campaigns.length;
         const activeCampaigns = campaigns.filter(camp => camp.status === 'ACTIVE').length;
 
+        // Calculate totals from filtered campaigns
+        let totalSpend = 0;
+        let totalRevenue = 0;
+        let redtrackApiWorking = true;  // Assume working until proven otherwise
+        let redtrackApiError = null;
+
+        if (campaigns && campaigns.length > 0) {
+            campaigns.forEach(campaign => {
+                totalSpend += parseFloat(campaign.spend || 0);
+                totalRevenue += parseFloat(campaign.revenue || 0);
+
+                // CRITICAL: Check for RedTrack API errors
+                if (campaign.redtrack_api_error) {
+                    redtrackApiWorking = false;
+                    redtrackApiError = campaign.redtrack_api_error;
+                }
+            });
+        }
+
+        // Calculate ROAS
+        const roas = totalSpend > 0 ? (totalRevenue / totalSpend * 100) : 0;
+
+        // Update campaign counts
         document.getElementById('totalCampaigns').textContent = totalCampaigns;
         document.getElementById('activeCampaigns').textContent = activeCampaigns;
 
-        console.log(`📊 Stats updated: ${totalCampaigns} total, ${activeCampaigns} active`);
+        // Update spend/revenue totals based on FILTERED campaigns
+        document.getElementById('totalSpendValue').textContent = `$${totalSpend.toFixed(2)}`;
+        document.getElementById('totalRevenueValue').textContent = `$${totalRevenue.toFixed(2)}`;
+        document.getElementById('totalRoasValue').textContent = `${roas.toFixed(1)}%`;
+
+        // CRITICAL: Show/hide RedTrack API status
+        updateRedTrackStatus(redtrackApiWorking, redtrackApiError);
+
+        console.log(`📊 Stats updated: ${totalCampaigns} total, ${activeCampaigns} active, $${totalSpend.toFixed(2)} spend, $${totalRevenue.toFixed(2)} revenue, ${roas.toFixed(1)}% ROAS, RedTrack: ${redtrackApiWorking ? 'Working' : 'FAILED'}`);
     }
 
-    // Optimized campaigns loading using global cache
+    // CRITICAL: Update RedTrack API status indicator with error details
+    function updateRedTrackStatus(isWorking, errorMessage) {
+        const statusCard = document.getElementById('redtrackStatus');
+        if (!statusCard) return;
+
+        if (isWorking) {
+            statusCard.style.display = 'none';
+            console.log('✅ RedTrack API: Working');
+        } else {
+            statusCard.style.display = 'flex';
+
+            // Update error message if available
+            if (errorMessage) {
+                const errorElement = statusCard.querySelector('.summary-period');
+                if (errorElement) {
+                    errorElement.textContent = `Error: ${errorMessage}`;
+                }
+            }
+
+            console.log(`❌ CRITICAL: RedTrack API FAILED - ${errorMessage || 'Revenue data incomplete'}`);
+        }
+    }
+
+    // FIXED: Optimized campaigns loading with proper date filtering
     function loadCampaignsOptimized() {
         const dateRange = document.getElementById('dateFilter').value;
 
-        // For default range, use cached data
-        if (dateRange === 'last_30_days') {
-            loadFromGlobalCache();
-        } else {
-            // For other date ranges, use old method
-            loadCampaignsOld(dateRange);
-        }
+        console.log(`🔄 Loading campaigns for date range: ${dateRange}`);
+        showLoading(true);
+
+        // Always use the campaigns list endpoint for consistent date filtering
+        fetch(`/dashboard/api/campaigns/list?date_range=${dateRange}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.campaigns) {
+                    allCampaigns = data.campaigns || [];
+
+                    // Update period labels
+                    updatePeriodLabels();
+
+                    // Apply all filters after loading new data
+                    applyAllFilters();
+
+                    // Update campaign stats with FILTERED campaigns
+                    const filteredCampaigns = getFilteredCampaigns();
+                    updateCampaignStats(filteredCampaigns);
+
+                    console.log(`✅ Loaded ${allCampaigns.length} campaigns for ${dateRange}`);
+                } else {
+                    console.error('❌ Failed to load campaigns:', data.error);
+                    showEmptyState();
+                }
+            })
+            .catch(error => {
+                console.error('❌ Error loading campaigns:', error);
+                showEmptyState();
+            })
+            .finally(() => {
+                showLoading(false);
+            });
     }
 
     // Load from global cached data
@@ -1324,14 +1505,15 @@
                     globalCachedData = data.data;
                     allCampaigns = data.data.campaigns || [];
 
-                    // Update campaign stats
-                    updateCampaignStats(allCampaigns);
-
                     // Update stats display
                     updateStatsDisplay(data.data);
 
                     // Apply all filters after loading new data
                     applyAllFilters();
+
+                    // Update campaign stats with FILTERED campaigns
+                    const filteredCampaigns = getFilteredCampaigns();
+                    updateCampaignStats(filteredCampaigns);
 
                     console.log(`✅ Loaded ${allCampaigns.length} campaigns from cache`);
                 } else {
@@ -1347,32 +1529,50 @@
             });
     }
 
-    // Refresh all data function
+    // ENHANCED: Refresh all data function with ALL filter preservation
     function refreshAllData(force = false) {
+        // Store current filter values BEFORE any operations
+        const currentFilters = {
+            status: document.getElementById('statusFilter').value,
+            match: document.getElementById('matchFilter').value,
+            date: document.getElementById('dateFilter').value
+        };
+
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {
             refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
             refreshBtn.disabled = true;
         }
 
-        const endpoint = force ? '/dashboard/api/refresh-all' : '/dashboard/api/get-all-data';
-        const method = force ? 'POST' : 'GET';
+        console.log('🔄 Manual refresh with ALL filters preserved:', currentFilters);
 
-        fetch(endpoint, { method: method })
+        // Always use the campaigns list endpoint with current date filter
+        fetch(`/dashboard/api/campaigns/list?date_range=${currentFilters.date}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    if (force) {
-                        // Force refresh completed, reload campaigns
-                        loadCampaignsOptimized();
-                        console.log('✅ Data force refreshed successfully');
-                    } else if (data.data) {
-                        globalCachedData = data.data;
-                        allCampaigns = data.data.campaigns || [];
-                        updateStatsDisplay(data.data);
-                        applyAllFilters();
-                        console.log('✅ Data refreshed from cache');
-                    }
+                    allCampaigns = data.campaigns || [];
+
+                    // CRITICAL: Restore ALL filter values immediately
+                    const statusFilter = document.getElementById('statusFilter');
+                    const matchFilter = document.getElementById('matchFilter');
+                    const dateFilter = document.getElementById('dateFilter');
+
+                    if (statusFilter) statusFilter.value = currentFilters.status;
+                    if (matchFilter) matchFilter.value = currentFilters.match;
+                    if (dateFilter) dateFilter.value = currentFilters.date;
+
+                    // Update period labels
+                    updatePeriodLabels();
+
+                    // Apply all filters FIRST to get correct filtered campaigns
+                    applyAllFilters();
+
+                    // Update campaign stats based on FILTERED campaigns
+                    const filteredCampaigns = getFilteredCampaigns();
+                    updateCampaignStats(filteredCampaigns);
+
+                    console.log(`✅ Manual refresh completed - ${allCampaigns.length} total campaigns, showing filtered results for: Status=${currentFilters.status || 'All'}, Match=${currentFilters.match || 'All'}, Date=${currentFilters.date}`);
                 } else {
                     console.error('Failed to refresh data:', data.error);
                 }
@@ -1382,7 +1582,7 @@
             })
             .finally(() => {
                 if (refreshBtn) {
-                    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Data';
+                    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
                     refreshBtn.disabled = false;
                 }
             });
@@ -1418,6 +1618,45 @@
             .finally(() => {
                 showLoading(false);
             });
+    }
+
+    // ENHANCED: Unified filter change handler with persistence
+    function handleFilterChange(filterType) {
+        console.log(`🔧 ${filterType} filter changed, applying filters...`);
+
+        // Save filter state immediately when any filter changes
+        saveFilterState();
+
+        if (filterType === 'date') {
+            // For date filter changes, we need to reload data
+            console.log('📅 Date filter changed, loading campaigns...');
+
+            // Clear any existing auto-refresh to prevent conflicts
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+
+            // Load campaigns with new date filter
+            loadCampaignsOptimized();
+
+            // Restart auto-refresh with new filter
+            setTimeout(() => {
+                startAutoRefresh();
+            }, 1000);
+        } else {
+            // For status and match filters, just apply filters to existing data
+            console.log(`🔧 ${filterType} filter changed, applying to existing data...`);
+            filterCampaigns();
+
+            // Update stats with filtered campaigns immediately
+            const filteredCampaigns = getFilteredCampaigns();
+            updateCampaignStats(filteredCampaigns);
+        }
+    }
+
+    // LEGACY: Keep for backward compatibility
+    function handleDateFilterChange() {
+        handleFilterChange('date');
     }
 
     // Load campaigns with caching (keep for backward compatibility)
@@ -1461,11 +1700,12 @@
         lastLoadTime = 0;
         loadCampaigns();
 
-        // Also update stats immediately
+        // Also update stats immediately with FILTERED campaigns
         setTimeout(() => {
             if (allCampaigns && allCampaigns.length > 0) {
-                updateCampaignStats(allCampaigns);
-                console.log('📊 Stats updated after manual refresh');
+                const filteredCampaigns = getFilteredCampaigns();
+                updateCampaignStats(filteredCampaigns);
+                console.log('📊 Stats updated after manual refresh with filtered campaigns');
             }
         }, 1000);
     }
@@ -1476,7 +1716,7 @@
         lastLoadTime = 0;
     }
 
-    // Apply all filters (status, tracking, and date)
+    // ENHANCED: Apply all filters and update stats
     function applyAllFilters() {
         const statusFilter = document.getElementById('statusFilter').value;
         const matchFilter = document.getElementById('matchFilter').value;
@@ -1491,7 +1731,13 @@
             filteredCampaigns = filteredCampaigns.filter(c => c.match_type === matchFilter);
         }
 
+        // Render campaigns (this also updates summary cards via updateSummaryCards)
         renderCampaigns(filteredCampaigns);
+
+        // Also update the header stats with filtered campaigns
+        updateCampaignStats(filteredCampaigns);
+
+        console.log(`🔧 Applied filters: Status=${statusFilter || 'All'}, Match=${matchFilter || 'All'} - Showing ${filteredCampaigns.length} campaigns`);
     }
 
     // Filter campaigns (called when status or tracking filters change)
@@ -1501,30 +1747,9 @@
 
 
 
-    // Update summary cards and campaigns count
+    // Update campaigns count only (totals handled by updateCampaignStats)
     function updateSummaryCards(campaigns) {
-        let totalSpend = 0;
-        let totalRevenue = 0;
         const campaignCount = campaigns ? campaigns.length : 0;
-
-        if (campaigns && campaigns.length > 0) {
-            campaigns.forEach(campaign => {
-                totalSpend += parseFloat(campaign.spend || 0);
-                totalRevenue += parseFloat(campaign.revenue || 0);
-            });
-        }
-
-        // Calculate ROAS
-        const roas = totalSpend > 0 ? (totalRevenue / totalSpend * 100) : 0;
-
-        // Update spend card
-        document.getElementById('totalSpendValue').textContent = `$${totalSpend.toFixed(2)}`;
-
-        // Update revenue card
-        document.getElementById('totalRevenueValue').textContent = `$${totalRevenue.toFixed(2)}`;
-
-        // Update ROAS card
-        document.getElementById('totalRoasValue').textContent = `${roas.toFixed(1)}%`;
 
         // Update campaigns count
         const countText = campaignCount === 1 ? '1 campaign' : `${campaignCount} campaigns`;
@@ -1549,11 +1774,23 @@
         }
     }
 
+    // FIXED: Update period labels to match current date filter
+    function updatePeriodLabels() {
+        const selectedPeriod = getPeriodLabel();
+        const periodElements = document.querySelectorAll('[id$="PeriodLabel"]');
+
+        periodElements.forEach(element => {
+            element.textContent = selectedPeriod;
+        });
+
+        console.log(`📅 Updated period labels to: ${selectedPeriod}`);
+    }
+
     // Render campaigns table
     function renderCampaigns(campaigns) {
         const content = document.getElementById('campaignsContent');
 
-        // Update summary cards first
+        // Update summary cards (campaigns count only, totals handled by updateCampaignStats)
         updateSummaryCards(campaigns);
 
         if (!campaigns || campaigns.length === 0) {
@@ -1758,8 +1995,9 @@
                         clearCampaignsCache();
                         filterCampaigns(); // Re-render with current filters
 
-                        // INSTANT UPDATE: Update campaign stats immediately
-                        updateCampaignStats(allCampaigns);
+                        // INSTANT UPDATE: Update campaign stats immediately with FILTERED campaigns
+                        const filteredCampaigns = getFilteredCampaigns();
+                        updateCampaignStats(filteredCampaigns);
                         console.log(`📊 INSTANT STATS UPDATE: Campaign ${campaignId} status changed to ${newStatus}`);
                     }
 
